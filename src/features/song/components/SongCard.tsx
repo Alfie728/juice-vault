@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Play, Pause, Heart, MoreVertical, Music } from "lucide-react";
+import { Heart, MoreVertical, Music, Pause, Play } from "lucide-react";
+import Image from "next/image";
+
 import { Button } from "~/features/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -10,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "~/features/shared/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
+
 interface SongWithUser {
   id: string;
   title: string;
@@ -70,12 +73,12 @@ export function SongCard({
   };
 
   return (
-    <div className="group relative rounded-lg border bg-card p-4 transition-all hover:shadow-lg">
+    <div className="group bg-card relative rounded-lg border p-4 transition-all hover:shadow-lg">
       <div className="flex gap-4">
         {/* Album Art */}
-        <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-md bg-muted">
+        <div className="bg-muted relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-md">
           {song.coverArtUrl && !imageError ? (
-            <img
+            <Image
               src={song.coverArtUrl}
               alt={song.title}
               className="h-full w-full object-cover"
@@ -83,22 +86,22 @@ export function SongCard({
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <Music className="h-8 w-8 text-muted-foreground" />
+              <Music className="text-muted-foreground h-8 w-8" />
             </div>
           )}
-          
+
           {/* Play/Pause Overlay */}
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
             <Button
               size="icon"
               variant="ghost"
-              className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 h-10 w-10 rounded-full"
               onClick={handlePlayPause}
             >
               {isPlaying ? (
                 <Pause className="h-5 w-5" />
               ) : (
-                <Play className="h-5 w-5 ml-0.5" />
+                <Play className="ml-0.5 h-5 w-5" />
               )}
             </Button>
           </div>
@@ -106,9 +109,9 @@ export function SongCard({
 
         {/* Song Info */}
         <div className="flex flex-1 flex-col justify-center">
-          <h3 className="font-semibold line-clamp-1">{song.title}</h3>
-          <p className="text-sm text-muted-foreground">{song.artist}</p>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+          <h3 className="line-clamp-1 font-semibold">{song.title}</h3>
+          <p className="text-muted-foreground text-sm">{song.artist}</p>
+          <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
             {song.duration && <span>{formatDuration(song.duration)}</span>}
             {song.isUnreleased && (
               <>
@@ -134,7 +137,7 @@ export function SongCard({
           >
             <Heart className={cn("h-4 w-4", isLiked && "fill-current")} />
           </Button>
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="icon" variant="ghost" className="h-8 w-8">
@@ -148,9 +151,7 @@ export function SongCard({
               <DropdownMenuItem onClick={onAddToPlaylist}>
                 Add to Playlist
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                Share
-              </DropdownMenuItem>
+              <DropdownMenuItem>Share</DropdownMenuItem>
               <DropdownMenuItem className="text-red-600">
                 Report
               </DropdownMenuItem>
