@@ -50,7 +50,9 @@ model User {
   image         String?
   accounts      Account[]
   sessions      Session[]
-  posts         Post[]
+  uploadedSongs Song[]
+  playlists     Playlist[]
+  likedSongs    UserLike[]
 }
 
 model VerificationToken {
@@ -61,14 +63,144 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Post {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Song {
+  id                String   @id @default(cuid())
+  title             String
+  artist            String   @default("Juice WRLD")
+  duration          Int?     // Duration in seconds
+  audioUrl          String   // URL to the audio file
+  coverArtUrl       String?  // URL to the cover art
+  releaseDate       DateTime?
+  isUnreleased      Boolean  @default(true)
+  playCount         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Embeddings for semantic search
+  titleEmbedding    Float[]
+  
+  uploadedBy        User     @relation(fields: [uploadedById], references: [id])
+  uploadedById      String
+  
+  lyrics            Lyrics?
+  playlists         PlaylistSong[]
+  likedBy           UserLike[]
+  processingJobs    ProcessingJob[]
+  
+  @@index([title])
+  @@index([uploadedById])
+  @@index([createdAt])
+}
 
-  createdBy   User   @relation(fields: [createdById], references: [id])
-  createdById String
+model Lyrics {
+  id                String   @id @default(cuid())
+  songId            String   @unique
+  fullText          String   @db.Text
+  lines             LyricLine[]
+  isGenerated       Boolean  @default(false)
+  isVerified        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Embedding for semantic search
+  embedding         Float[]
+  
+  song              Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  
+  @@index([songId])
+}
 
+model LyricLine {
+  id                String   @id @default(cuid())
+  lyricsId          String
+  text              String
+  startTime         Float    // Start time in seconds
+  endTime           Float?   // End time in seconds
+  orderIndex        Int      // Order of the line in the lyrics
+  
+  lyrics            Lyrics   @relation(fields: [lyricsId], references: [id], onDelete: Cascade)
+  
+  @@index([lyricsId, orderIndex])
+  @@unique([lyricsId, orderIndex])
+}
+
+model Playlist {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  coverUrl          String?
+  isPublic          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  ownerId           String
+  owner             User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  songs             PlaylistSong[]
+  
+  @@index([ownerId])
   @@index([name])
+}
+
+model PlaylistSong {
+  id                String   @id @default(cuid())
+  playlistId        String
+  songId            String
+  orderIndex        Int
+  addedAt           DateTime @default(now())
+  
+  playlist          Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  song              Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  
+  @@unique([playlistId, songId])
+  @@index([playlistId, orderIndex])
+}
+
+model UserLike {
+  id                String   @id @default(cuid())
+  userId            String
+  songId            String
+  likedAt           DateTime @default(now())
+  
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song              Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, songId])
+  @@index([userId])
+  @@index([songId])
+}
+
+model ProcessingJob {
+  id                String   @id @default(cuid())
+  songId            String
+  type              JobType
+  status            JobStatus @default(PENDING)
+  triggerId         String?  // Trigger.dev job ID
+  error             String?
+  metadata          Json?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  song              Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+  
+  @@index([songId])
+  @@index([status])
+  @@index([type])
+}
+
+enum JobType {
+  GENERATE_LYRICS
+  SYNC_LYRICS
+  GENERATE_EMBEDDINGS
+  EXTRACT_AUDIO_FEATURES
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
 }

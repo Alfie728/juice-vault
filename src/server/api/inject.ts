@@ -15,12 +15,14 @@
  */
 import { Layer, ManagedRuntime } from "effect";
 
-import { PostService } from "~/domain/post/service";
+import { EmbeddingsService } from "~/domain/ai/embeddings-service";
+import { LyricsService } from "~/domain/lyrics/service";
 import { PrismaClientService } from "~/lib/prisma";
 
 const MainLayer = Layer.mergeAll(
-  PostService.Default,
-  PrismaClientService.Default
+  PrismaClientService.Default,
+  EmbeddingsService.Default,
+  LyricsService.Default
 );
 
 export const ServiceRuntime = ManagedRuntime.make(MainLayer);
