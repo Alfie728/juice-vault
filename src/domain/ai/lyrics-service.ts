@@ -1,9 +1,10 @@
 import { openai } from "@ai-sdk/openai";
 import { Schema } from "@effect/schema";
-import { generateObject, generateText } from "ai";
-import { Effect, pipe } from "effect";
+import { generateObject, experimental_transcribe as transcribe } from "ai";
+import { Effect, pipe, Schedule } from "effect";
 import { z } from "zod";
 
+import { AiError } from "~/domain/ai/errors";
 import { ValidationError } from "~/domain/errors";
 
 export const LyricLine = Schema.Struct({
@@ -37,7 +38,8 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
   "LyricsAIService",
   {
     effect: Effect.gen(function* () {
-      const model = openai("gpt-4o");
+      const transcriptionModel = openai.transcription("whisper-1");
+      const generationModel = openai("gpt-4o");
 
       return {
         generateLyrics: (input: GenerateLyricsInput) =>
@@ -53,33 +55,24 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
             Effect.flatMap((validInput) =>
               Effect.tryPromise({
                 try: async () => {
-                  const prompt = `
-                  Generate lyrics for a song titled "${validInput.songTitle}" by ${validInput.artist}.
-                  This is likely an unreleased Juice WRLD song.
-                  ${validInput.duration ? `The song duration is approximately ${validInput.duration} seconds.` : ""}
-
-                  Generate realistic and emotionally resonant lyrics that match Juice WRLD's style:
-                  - Themes: love, heartbreak, substance use, mental health, success
-                  - Style: melodic, emotional, honest, vulnerable
-                  - Include hooks, verses, and bridges
-
-                  Return only the lyrics, with clear verse/chorus/bridge markers.
-                `;
-
-                  const { text } = await generateText({
-                    model,
-                    prompt,
+                  const { text } = await transcribe({
+                    model: transcriptionModel,
+                    audio: validInput.audioUrl,
                   });
 
                   return text;
                 },
                 catch: (error) =>
-                  new ValidationError({
-                    field: "generateLyrics",
-                    reason: `Failed to generate lyrics: ${String(error)}`,
+                  new AiError({
+                    cause: error,
+                    description: `Failed to generate lyrics: ${String(error)}`,
+                    method: "generateLyrics",
+                    module: "lyrics-service",
                   }),
               })
-            )
+            ),
+            Effect.withSpan("generateLyrics"),
+            Effect.retry(Schedule.exponential("600 millis"))
           ),
 
         syncLyricsWithTimestamps: (input: SyncLyricsInput) =>
@@ -116,7 +109,7 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                 `;
 
                   const { object } = await generateObject({
-                    model,
+                    model: generationModel,
                     prompt,
                     schema: z.object({
                       lines: z.array(
@@ -132,12 +125,17 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                   return object.lines as LyricLine[];
                 },
                 catch: (error) =>
-                  new ValidationError({
-                    field: "syncLyrics",
-                    reason: `Failed to sync lyrics: ${String(error)}`,
+                  new AiError({
+                    method: "generateLyrics",
+                    module: "lyrics-service",
+                    cause: error,
+                    description: `Failed to generate lyrics: ${String(error)}`,
                   }),
               })
-            )
+            ),
+            Effect.withSpan("syncLyricsWithTimestamps"),
+            Effect.retry(Schedule.exponential("600 millis")),
+            Effect.withSpan("syncLyricsWithTimestampsRetry")
           ),
 
         improveTimestamps: (
