@@ -4,12 +4,9 @@ import { TRPCError } from "@trpc/server";
 import { Effect } from "effect";
 import { z } from "zod";
 
+import { S3Service } from "~/domain/infra/s3-service";
 import { SongService } from "~/domain/song/service";
-import {
-  createTRPCRouter,
-  protectedProcedure,
-  publicProcedure,
-} from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const songRouter = createTRPCRouter({
   create: protectedProcedure
@@ -27,36 +24,76 @@ export const songRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const program = Effect.gen(function* () {
         const songService = yield* SongService;
+        const s3Service = yield* S3Service;
 
-        const song = yield* songService.createSong({
-          ...input,
-          uploadedBy: { id: ctx.session.user.id },
-        });
+        // Extract S3 keys from URLs for potential cleanup
+        const extractS3Key = (url: string) => {
+          const match = /amazonaws\.com\/(.+)$/.exec(url);
+          return match ? match[1] : null;
+        };
 
-        return song;
-      });
+        const audioKey = extractS3Key(input.audioUrl);
+        const coverKey = input.coverArtUrl
+          ? extractS3Key(input.coverArtUrl)
+          : null;
 
-      return await Effect.runPromise(
-        program.pipe(
-          Effect.provide(SongService.Default),
-          Effect.catchTags({
-            ValidationError: (error) =>
-              Effect.fail(
-                new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: error.message,
-                })
-              ),
-            DatabaseError: (error) =>
-              Effect.fail(
-                new TRPCError({
-                  code: "INTERNAL_SERVER_ERROR",
-                  message: error.message,
-                })
-              ),
+        // Create song with automatic cleanup on failure
+        const createSongWithCleanup = songService
+          .createSong({
+            ...input,
+            uploadedBy: { id: ctx.session.user.id },
           })
-        )
+          .pipe(
+            Effect.onError(() => {
+              // Cleanup S3 files if database creation fails
+              const cleanupEffects = [];
+
+              if (audioKey) {
+                cleanupEffects.push(
+                  s3Service.delete(audioKey).pipe(
+                    Effect.catchAll(() => Effect.succeed(undefined)) // Ignore cleanup errors
+                  )
+                );
+              }
+
+              if (coverKey) {
+                cleanupEffects.push(
+                  s3Service.delete(coverKey).pipe(
+                    Effect.catchAll(() => Effect.succeed(undefined)) // Ignore cleanup errors
+                  )
+                );
+              }
+
+              // Run cleanup in parallel, but don't fail if cleanup fails
+              return cleanupEffects.length > 0
+                ? Effect.all(cleanupEffects, { concurrency: "unbounded" }).pipe(
+                    Effect.catchAll(() => Effect.succeed(undefined))
+                  )
+                : Effect.succeed(undefined);
+            })
+          );
+
+        return yield* createSongWithCleanup;
+      }).pipe(
+        Effect.catchTags({
+          ValidationError: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: error.message,
+              })
+            ),
+          DatabaseError: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: error.message,
+              })
+            ),
+        })
       );
+
+      return ctx.runtime.runPromise(program);
     }),
 
   get: protectedProcedure
@@ -206,6 +243,7 @@ export const songRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const program = Effect.gen(function* () {
         const songService = yield* SongService;
+        const s3Service = yield* S3Service;
         const song = yield* songService.getSong(input.id);
 
         if (song.uploadedById !== ctx.session.user.id) {
@@ -217,7 +255,44 @@ export const songRouter = createTRPCRouter({
           );
         }
 
-        return yield* songService.deleteSong(input.id);
+        // Extract S3 keys from URLs for cleanup
+        const extractS3Key = (url: string) => {
+          const match = /amazonaws\.com\/(.+)$/.exec(url);
+          return match ? match[1] : null;
+        };
+
+        const audioKey = extractS3Key(song.audioUrl);
+        const coverKey = song.coverArtUrl
+          ? extractS3Key(song.coverArtUrl)
+          : null;
+
+        // Delete from database first
+        const deletedSong = yield* songService.deleteSong(input.id);
+
+        // Then clean up S3 files (best effort, don't fail if S3 cleanup fails)
+        const cleanupEffects = [];
+
+        if (audioKey) {
+          cleanupEffects.push(
+            s3Service
+              .delete(audioKey)
+              .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          );
+        }
+
+        if (coverKey) {
+          cleanupEffects.push(
+            s3Service
+              .delete(coverKey)
+              .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          );
+        }
+
+        if (cleanupEffects.length > 0) {
+          yield* Effect.all(cleanupEffects, { concurrency: "unbounded" });
+        }
+
+        return deletedSong;
       }).pipe(
         Effect.catchTags({
           NotFoundError: (error) =>
