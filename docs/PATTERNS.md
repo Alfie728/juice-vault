@@ -580,10 +580,11 @@ export const lyricsRouter = createTRPCRouter({
       }).pipe(
         // ✅ INSTRUMENTATION: How the program behaves
         
-        // Retry strategy
+        // Retry while we get AI errors, with exponential backoff
         Effect.retry({
           schedule: Schedule.exponential("1 second"),
-          until: (error) => error._tag !== "AiError",
+          while: (error) => error._tag === "AiError",
+          times: 3,
         }),
         
         // Error handling policy
@@ -763,7 +764,10 @@ const goodPattern = Effect.gen(function* () {
   return saved;
 }).pipe(
   // ✅ All instrumentation separated
-  Effect.retry(Schedule.exponential("1 second")),
+  Effect.repeat({
+    schedule: Schedule.exponential("1 second"),
+    until: (result) => result.success === true,
+  }),
   Effect.catchTags({
     DatabaseError: (error) => Effect.succeed({ error: error.message }),
     ValidationError: (error) => Effect.fail(new TRPCError({ ... })),
@@ -772,35 +776,164 @@ const goodPattern = Effect.gen(function* () {
 );
 ```
 
-### Retry Patterns with Effect
+### Repeat vs Retry Patterns
+
+**Key Decision: When to use `Effect.repeat` vs `Effect.retry`**
+
+#### Use `Effect.repeat` for Successful Repetition (Count-Based)
+```typescript
+// ✅ Repeat a successful operation multiple times
+const notifyUsers = Effect.gen(function* () {
+  const notification = yield* NotificationService;
+  return yield* notification.send("Update available");
+});
+
+// Repeat the notification 3 times with delays
+const program = Effect.repeat(
+  notifyUsers,
+  Schedule.spaced("1 hour").pipe(Schedule.intersect(Schedule.recurs(2)))
+);
+// This sends 3 notifications total (initial + 2 repeats)
+
+// ✅ Repeat until a schedule condition is met
+const healthCheck = Effect.repeat(
+  checkServerHealth,
+  Schedule.spaced("30 seconds").pipe(Schedule.recurs(10))
+);
+// Note: Effect.repeat returns the number of repetitions, not the operation result
+```
+
+#### Use `Effect.retry` for Error Recovery (Result-Based)
+```typescript
+// ✅ Retry when operations fail due to transient errors
+const fetchDataProgram = Effect.gen(function* () {
+  const http = yield* HttpClient;
+  return yield* http.get("/api/data");
+}).pipe(
+  // Retry while getting transient errors, stop on permanent errors
+  Effect.retry({
+    schedule: Schedule.exponential("1 second"),
+    while: (error) => {
+      // Continue retrying for transient errors
+      if (error._tag === "NetworkError") return true; // Keep retrying
+      if (error._tag === "TimeoutError") return true; // Keep retrying
+      return false; // Stop for permanent errors like ValidationError
+    },
+    times: 5, // Maximum 5 retry attempts
+  })
+);
+
+// ✅ Retry AI operations while getting specific errors (our lyrics use case)
+const transcribeProgram = Effect.gen(function* () {
+  const ai = yield* AIService;
+  return yield* ai.transcribeAudio(audioBuffer);
+}).pipe(
+  // Keep retrying while we get AiErrors, max 3 attempts
+  Effect.retry({
+    schedule: Schedule.exponential("1 second"),
+    while: (error) => error._tag === "AiError", // Continue while getting AI errors
+    times: 3, // Maximum 3 retry attempts
+  })
+);
+```
+
+#### When to Use Each Pattern
+
+| Use Case | Pattern | Why | Returns |
+|----------|---------|-----|---------|
+| Sending notifications multiple times | `Effect.repeat` | Execute successful operation N times | Number of repetitions |
+| AI operations that may fail | `Effect.retry` | Keep trying until successful | Operation result |
+| Network requests that may fail | `Effect.retry` | Recover from transient network issues | Operation result |
+| Database operations with conflicts | `Effect.retry` | Handle temporary lock/conflict errors | Operation result |
+| Periodic health checks | `Effect.repeat` | Run successful checks on schedule | Number of repetitions |
+
+**Key Insight for AI Operations:**
+- Use `Effect.retry` for AI operations because you want the **result of the successful operation**
+- Use `Effect.repeat` for scheduled tasks because you want to **count the executions**
 
 ```typescript
-// Selective retry - only retry specific error types
-Effect.retry({
-  schedule: Schedule.exponential("1 second"), // Exponential backoff
-  until: (error) => {
-    // Only retry AiErrors, fail fast on other errors
-    return error._tag !== "AiError";
-  },
-})
+// ✅ Correct pattern for AI operations
+const aiProgram = Effect.gen(function* () {
+  const ai = yield* AIService;
+  return yield* ai.generateContent(input); // Want the generated content
+}).pipe(
+  Effect.retry({
+    schedule: Schedule.exponential("1 second"),
+    while: (error) => error._tag === "AiError", // Continue while getting AI errors
+    times: 3, // Max 3 attempts
+  })
+); // Returns: the generated content (string)
 
-// Alternative: Retry with maximum attempts
-Effect.retry({
-  schedule: Schedule.exponential("1 second").pipe(
-    Schedule.intersect(Schedule.recurs(5)) // Max 5 retries
-  ),
-  until: (error) => error._tag !== "AiError",
-})
+// ✅ Correct pattern for scheduled tasks
+const scheduledTask = Effect.repeat(
+  performHealthCheck, // Want to execute multiple times
+  Schedule.spaced("5 minutes").pipe(Schedule.recurs(12))
+); // Returns: number of executions (number)
+```
 
-// Conditional retry with complex logic
+### Retry Configuration Patterns
+
+**Understanding `while` vs `until` and `times`:**
+
+```typescript
+// ✅ PREFERRED: Use `while` - more intuitive
 Effect.retry({
   schedule: Schedule.exponential("1 second"),
-  until: (error) => {
-    // Custom retry logic based on error type and properties
-    if (error._tag === "AiError") return false; // Retry AiErrors
-    if (error._tag === "RateLimitError") return false; // Retry rate limits
-    return true; // Don't retry other errors
+  while: (error) => error._tag === "AiError", // Continue WHILE condition is true
+  times: 3, // Maximum number of retry attempts
+})
+
+// ❌ Less intuitive: Use `until` - opposite logic
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  until: (error) => error._tag !== "AiError", // Stop UNTIL condition is true
+})
+```
+
+**Key Differences:**
+
+| Option | Logic | Example | Intuition |
+|--------|-------|---------|-----------|
+| `while` | Continue retrying **while** condition is `true` | `while: (error) => error._tag === "AiError"` | "Keep trying while we get AI errors" |
+| `until` | Continue retrying **until** condition is `true` | `until: (error) => error._tag !== "AiError"` | "Keep trying until we stop getting AI errors" |
+| `times` | Maximum number of retry attempts | `times: 3` | "Try at most 3 times" |
+
+**Best Practices:**
+
+```typescript
+// ✅ GOOD: Clear intent with while + times
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  while: (error) => {
+    // Explicit list of retryable errors
+    return error._tag === "AiError" || 
+           error._tag === "NetworkError" || 
+           error._tag === "TimeoutError";
   },
+  times: 5, // Always include max attempts to prevent infinite loops
+})
+
+// ✅ GOOD: Simple single error type
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  while: (error) => error._tag === "AiError",
+  times: 3,
+})
+
+// ❌ AVOID: No maximum attempts (can retry forever)
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  while: (error) => error._tag === "AiError",
+  // Missing times - potentially infinite retries!
+})
+
+// ❌ AVOID: Complex until logic (harder to reason about)
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  until: (error) => 
+    error._tag !== "AiError" && 
+    error._tag !== "NetworkError" && 
+    error._tag !== "TimeoutError",
 })
 ```
 

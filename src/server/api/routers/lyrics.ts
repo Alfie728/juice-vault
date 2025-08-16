@@ -153,10 +153,12 @@ export const lyricsRouter = createTRPCRouter({
           duration: input.duration,
         });
       }).pipe(
-        // Retry until we stop getting AI errors (i.e., until successful)
+        // Retry while we are still getting AI errors
         Effect.retry({
           schedule: Schedule.exponential("1 second"),
-          until: (error) => error._tag !== "AiError",
+          while: (error) =>
+            error._tag === "AiError" || error._tag === "RequestError",
+          times: 3,
         }),
         // Handle specific error types gracefully
         Effect.catchTags({
@@ -308,10 +310,11 @@ export const lyricsRouter = createTRPCRouter({
           duration: input.duration,
         });
       }).pipe(
-        // Retry until we stop getting AI errors (i.e., until successful)
+        // Retry while we are still getting AI errors
         Effect.retry({
           schedule: Schedule.exponential("1 second"),
-          until: (error) => error._tag !== "AiError",
+          while: (error) => error._tag === "AiError",
+          times: 3,
         }),
         // Handle specific error types gracefully
         Effect.catchTags({
