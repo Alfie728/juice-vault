@@ -1,7 +1,7 @@
 import { eventTrigger, Job } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { Effect } from "effect";
-import { LyricsAIService } from "~/domain/ai/lyrics-service";
+import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { LyricsService } from "~/domain/lyrics/service";
 import { EmbeddingsService } from "~/domain/ai/embeddings-service";
 import { PrismaClientService } from "~/lib/prisma";

@@ -23,7 +23,7 @@ import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { config } from "dotenv";
 import { Effect, pipe } from "effect";
 
-import { LyricsAIService } from "./lyrics-service";
+import { LyricsAIService } from "./lyrics-ai-service";
 
 // Load environment variables
 config();

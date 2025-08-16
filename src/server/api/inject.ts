@@ -16,6 +16,7 @@
 import { Layer, ManagedRuntime } from "effect";
 
 // import { EmbeddingsService } from "~/domain/ai/embeddings-service";
+import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { S3Service } from "~/domain/infra/s3-service";
 import { LyricsService } from "~/domain/lyrics/service";
 import { SongService } from "~/domain/song/service";
@@ -25,6 +26,7 @@ const MainLayer = Layer.mergeAll(
   PrismaClientService.Default,
   // EmbeddingsService.Default, // Commented out - no Upstash Vector config needed
   LyricsService.Default,
+  LyricsAIService.Default,
   S3Service.Default,
   SongService.Default
 );

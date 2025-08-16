@@ -94,7 +94,8 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                             "Direct URL transcription not supported. Please download the file first."
                           );
                         } else if (inputAudioData.includes("base64")) {
-                          const base64Data = inputAudioData.split(",")[1] ?? inputAudioData;
+                          const base64Data =
+                            inputAudioData.split(",")[1] ?? inputAudioData;
                           const bufferData = Buffer.from(base64Data, "base64");
                           processedAudioData = bufferData;
                           audioSize = bufferData.length;
@@ -116,7 +117,11 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                         );
                       }
 
-                      return { audioData: processedAudioData, audioSize, audioFormat };
+                      return {
+                        audioData: processedAudioData,
+                        audioSize,
+                        audioFormat,
+                      };
                     },
                     catch: (error) =>
                       new AiError({
@@ -204,7 +209,7 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                     const averageTimePerLine = validInput.duration
                       ? validInput.duration / lines.length
                       : 3;
-                    
+
                     return {
                       lines,
                       averageTimePerLine,
@@ -220,13 +225,13 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                     },
                   }
                 ),
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                Effect.flatMap(({ lines, averageTimePerLine, lineCount, totalDuration }) =>
-                  // GPT-4 timestamp generation span
-                  Effect.withSpan(
-                    Effect.tryPromise({
-                      try: async () => {
-                        const prompt = `
+                Effect.flatMap(
+                  ({ lines, averageTimePerLine, lineCount, totalDuration }) =>
+                    // GPT-4 timestamp generation span
+                    Effect.withSpan(
+                      Effect.tryPromise({
+                        try: async () => {
+                          const prompt = `
                         Given these lyrics, estimate reasonable timestamps for each line.
                         Each line should have a start time in seconds.
                         Total song duration: ${totalDuration} seconds
@@ -239,48 +244,48 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                         Return timestamps that feel natural for the flow of the song.
                       `;
 
-                        const startTime = Date.now();
-                        const { object } = await generateObject({
-                          model: generationModel,
-                          prompt,
-                          schema: z.object({
-                            lines: z.array(
-                              z.object({
-                                text: z.string(),
-                                startTime: z.number(),
-                                endTime: z.number().optional(),
-                              })
-                            ),
+                          const startTime = Date.now();
+                          const { object } = await generateObject({
+                            model: generationModel,
+                            prompt,
+                            schema: z.object({
+                              lines: z.array(
+                                z.object({
+                                  text: z.string(),
+                                  startTime: z.number(),
+                                  endTime: z.number().optional(),
+                                })
+                              ),
+                            }),
+                          });
+                          const duration = Date.now() - startTime;
+
+                          // Log successful generation
+                          Effect.logInfo("Timestamps generated", {
+                            duration,
+                            lineCount: object.lines.length,
+                          }).pipe(Effect.runSync);
+
+                          return object.lines as LyricLine[];
+                        },
+                        catch: (error) =>
+                          new AiError({
+                            method: "syncLyricsWithTimestamps",
+                            module: "lyrics-service",
+                            cause: error,
+                            description: `Failed to generate timestamps: ${String(error)}`,
                           }),
-                        });
-                        const duration = Date.now() - startTime;
-
-                        // Log successful generation
-                        Effect.logInfo("Timestamps generated", {
-                          duration,
-                          lineCount: object.lines.length,
-                        }).pipe(Effect.runSync);
-
-                        return object.lines as LyricLine[];
-                      },
-                      catch: (error) =>
-                        new AiError({
-                          method: "syncLyricsWithTimestamps",
-                          module: "lyrics-service",
-                          cause: error,
-                          description: `Failed to generate timestamps: ${String(error)}`,
-                        }),
-                    }),
-                    "lyrics.sync.generate_timestamps",
-                    {
-                      attributes: {
-                        "lyrics.line_count": lineCount,
-                        "lyrics.total_duration": totalDuration,
-                        "lyrics.avg_time_per_line": averageTimePerLine,
-                        "ai.model": "gpt-4o",
-                      },
-                    }
-                  )
+                      }),
+                      "lyrics.sync.generate_timestamps",
+                      {
+                        attributes: {
+                          "lyrics.line_count": lineCount,
+                          "lyrics.total_duration": totalDuration,
+                          "lyrics.avg_time_per_line": averageTimePerLine,
+                          "ai.model": "gpt-4o",
+                        },
+                      }
+                    )
                 )
               )
             ),
@@ -301,17 +306,19 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
             Effect.try({
               try: () => {
                 if (!audioAnalysis?.beats) {
-                  Effect.logDebug("No audio analysis provided, returning original timestamps")
-                    .pipe(Effect.runSync);
+                  Effect.logDebug(
+                    "No audio analysis provided, returning original timestamps"
+                  ).pipe(Effect.runSync);
                   return lines;
                 }
 
                 const improvedLines = lines.map((line, index) => {
-                  const nearestBeat = audioAnalysis.beats?.reduce((prev, curr) =>
-                    Math.abs(curr - line.startTime) <
-                    Math.abs(prev - line.startTime)
-                      ? curr
-                      : prev
+                  const nearestBeat = audioAnalysis.beats?.reduce(
+                    (prev, curr) =>
+                      Math.abs(curr - line.startTime) <
+                      Math.abs(prev - line.startTime)
+                        ? curr
+                        : prev
                   );
 
                   return {

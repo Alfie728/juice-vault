@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 
 import { EmbeddingsService } from "~/domain/ai/embeddings-service";
-import { LyricsAIService } from "~/domain/ai/lyrics-service";
+import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { LyricsService } from "~/domain/lyrics/service";
 import { PrismaClientService } from "~/lib/prisma";
 

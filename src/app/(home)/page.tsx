@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { HydrateClient, prefetch, trpc } from "~/trpc/server";
 
 import { JuiceVaultContent } from "./_components/JuiceVaultContent";
@@ -7,8 +9,10 @@ export default async function Home() {
   prefetch(trpc.song.list.queryOptions());
 
   return (
-    <HydrateClient>
-      <JuiceVaultContent />
-    </HydrateClient>
+    <Suspense fallback={<div>Loading...</div>}>
+      <HydrateClient>
+        <JuiceVaultContent />
+      </HydrateClient>
+    </Suspense>
   );
 }

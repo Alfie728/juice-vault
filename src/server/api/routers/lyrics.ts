@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { Effect } from "effect";
 import { z } from "zod";
 
+import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { LyricsService } from "~/domain/lyrics/service";
 import { client } from "~/jobs/client";
 import { generateLyricsJob } from "~/jobs/lyrics-generation";
@@ -137,25 +138,84 @@ export const lyricsRouter = createTRPCRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const program = Effect.gen(function* () {
-        yield* Effect.tryPromise({
-          try: () =>
-            client.sendEvent({
-              name: "song.lyrics.generate",
-              payload: input,
-            }),
+        const lyricsService = yield* LyricsService;
+        const lyricsAI = yield* LyricsAIService;
+
+        // Check if lyrics already exist
+        const existingLyrics = yield* lyricsService
+          .getLyricsBySongId(input.songId)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+        if (existingLyrics) {
+          return {
+            success: true,
+            message: "Lyrics already exist",
+            songId: input.songId,
+            lyricsId: existingLyrics.id,
+          };
+        }
+
+        // First, fetch the audio file from the URL
+        const audioResponse = yield* Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(input.audioUrl);
+            if (!response.ok) {
+              throw new Error(`Failed to fetch audio: ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+          },
           catch: (error) =>
             new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
-              message: `Failed to start lyrics generation job: ${String(error)}`,
+              message: `Failed to fetch audio file: ${String(error)}`,
             }),
+        });
+
+        // Generate lyrics using AI transcription with fallback
+        const transcribedText = yield* lyricsAI
+          .generateLyrics({
+            audioUrl: audioResponse,
+            songTitle: input.songTitle,
+            artist: input.artist,
+            duration: input.duration,
+          })
+          .pipe(
+            Effect.catchAll(() => {
+              // If AI fails, create placeholder lyrics as fallback
+              return Effect.succeed(`${input.songTitle} by ${input.artist}
+
+[Lyrics transcription failed]
+
+The audio transcription service encountered an error.
+You can edit this to add the lyrics manually.`);
+            })
+          );
+
+        // Save the lyrics to database
+        const lyrics = yield* lyricsService.createLyrics({
+          songId: input.songId,
+          fullText: transcribedText,
+          isGenerated: true,
         });
 
         return {
           success: true,
-          message: "Lyrics generation job started",
+          message: "Lyrics generated successfully",
           songId: input.songId,
+          lyricsId: lyrics.id,
         };
-      });
+      }).pipe(
+        Effect.catchTags({
+          DatabaseError: (error: { message: string }) =>
+            Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: error.message,
+              })
+            ),
+        })
+      );
 
       return ctx.runtime.runPromise(program);
     }),

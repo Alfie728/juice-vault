@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Heart, Music, Pause, Play } from "lucide-react";
+import { Clock, Heart, Music, Pause, Play, Mic2 } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
 
 import { useAudioPlayer } from "~/features/player/hooks/use-audio-player";
+import { LyricsDialog } from "~/features/lyrics/components/LyricsDialog";
 import { Button } from "~/features/shared/components/ui/button";
 import { Card } from "~/features/shared/components/ui/card";
 import { type RouterOutputs } from "~/trpc/react";
@@ -18,11 +19,14 @@ interface SongGridProps {
 
 export function SongGrid({ songs }: SongGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const { play, pause, currentSong, isPlaying, addToQueue } = useAudioPlayer();
+  const [lyricsDialogOpen, setLyricsDialogOpen] = useState(false);
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const { play, pause, currentSong, isPlaying, addToQueue, currentTime } = useAudioPlayer();
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
-      {songs.map((song, index) => (
+    <>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+        {songs.map((song, index) => (
         <motion.div
           key={song.id}
           initial={{ opacity: 0, y: 20 }}
@@ -114,19 +118,48 @@ export function SongGrid({ songs }: SongGridProps) {
                     </span>
                   )}
                 </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-6 w-6 hover:text-red-500 sm:h-8 sm:w-8"
-                >
-                  <Heart className="h-3 w-3 sm:h-4 sm:w-4" />
-                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 hover:text-purple-500 sm:h-8 sm:w-8"
+                    onClick={() => {
+                      setSelectedSong(song);
+                      setLyricsDialogOpen(true);
+                    }}
+                  >
+                    <Mic2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 hover:text-red-500 sm:h-8 sm:w-8"
+                  >
+                    <Heart className="h-3 w-3 sm:h-4 sm:w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
         </motion.div>
       ))}
     </div>
+      
+      {/* Lyrics Dialog */}
+      {selectedSong && (
+        <LyricsDialog
+          open={lyricsDialogOpen}
+          onOpenChange={setLyricsDialogOpen}
+          songId={selectedSong.id}
+          songTitle={selectedSong.title}
+          artist={selectedSong.artist}
+          audioUrl={selectedSong.audioUrl}
+          duration={selectedSong.duration ?? undefined}
+          currentTime={currentSong?.id === selectedSong.id ? currentTime : 0}
+          isPlaying={currentSong?.id === selectedSong.id && isPlaying}
+        />
+      )}
+    </>
   );
 }
 
