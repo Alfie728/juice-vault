@@ -1,58 +1,38 @@
 # Docker Setup Guide for JuiceVault
 
-This guide explains how to set up and use Docker for local development with OpenTelemetry observability.
+This guide explains the Docker setup for local development.
 
 ## 📋 Prerequisites
 
 - Docker Desktop installed ([Download here](https://www.docker.com/products/docker-desktop))
 - Docker Compose (included with Docker Desktop)
-- Make (optional, for convenience commands)
 
 ## 🚀 Quick Start
 
-### Using Development Scripts (Recommended)
 ```bash
-# Start everything (All services in Docker)
-./scripts/dev-start.sh
-
-# Stop everything
-./scripts/dev-stop.sh
-
-# Check status
-./scripts/dev-status.sh
+# Start all services
+./scripts/start.sh
 
 # View logs
-./scripts/dev-logs.sh          # All logs
-./scripts/dev-logs.sh nextjs    # Next.js logs only
-./scripts/dev-logs.sh postgres  # Database logs only
+./scripts/logs.sh
 
-# Execute commands in containers
-./scripts/dev-exec.sh nextjs pnpm lint  # Run linting
-./scripts/dev-exec.sh postgres psql     # Connect to database
+# Stop everything
+./scripts/stop.sh
 ```
 
-### Using Docker Setup Script
-```bash
-# Start Docker services only
-./scripts/docker-setup.sh start
-
-# Stop Docker services
-./scripts/docker-setup.sh stop
-
-# View Docker logs
-./scripts/docker-setup.sh logs
-```
-
-### Using Docker Compose Directly
+### Manual Docker Commands
 ```bash
 # Start services
-docker compose up -d
+docker compose up --build -d
 
 # Stop services
 docker compose down
 
 # View logs
 docker compose logs -f
+
+# Clean everything (including volumes)
+docker compose down -v
 ```
 
 ## 🏗️ Architecture
@@ -170,12 +150,6 @@ The `otel-lgtm` container includes:
 
 ### Test OTLP Connectivity
 ```bash
-# Using dev script
-./scripts/dev-test.sh otlp
-
-# Using docker script
-./scripts/docker-setup.sh test
-
 # Manual test
 curl -X POST http://localhost:4318/v1/traces \
   -H "Content-Type: application/json" \
@@ -185,10 +159,7 @@ curl -X POST http://localhost:4318/v1/traces \
 ### Run Lyrics Test with Tracing
 ```bash
 # This will send traces to Tempo
-./scripts/dev-test.sh lyrics
-
-# Or directly
-pnpm test:lyrics
+./scripts/test-lyrics.sh
 ```
 
 ## 🔧 Troubleshooting
@@ -196,13 +167,9 @@ pnpm test:lyrics
 ### Traces Not Appearing in Tempo
 
 1. **Check time range**: Make sure it's set to "Last 5 minutes" or "Last 1 hour"
-2. **Verify OTLP is running**:
+2. **Check container logs**:
    ```bash
-   ./scripts/dev-test.sh otlp
-   ```
-3. **Check container logs**:
-   ```bash
-   ./scripts/dev-logs.sh otel-lgtm
+   docker compose logs otel-lgtm
    ```
 4. **Try empty query**: Use `{}` in TraceQL to see all traces
 
@@ -225,8 +192,8 @@ If ports are already in use:
    ```
 2. Clean up and restart:
    ```bash
-   ./scripts/dev-clean.sh docker
-   ./scripts/dev-start.sh
+   docker compose down -v
+   ./scripts/start.sh
    ```
 
 ## 🛠️ Advanced Configuration
@@ -284,17 +251,17 @@ GF_SECURITY_ADMIN_PASSWORD=your-secure-password
 
 ### Stop Services
 ```bash
-./scripts/dev-stop.sh
+./scripts/stop.sh
 ```
 
 ### Remove All Data
 ```bash
 # WARNING: This deletes all volumes and data
-./scripts/dev-clean.sh docker
+./scripts/clean.sh
 ```
 
 ### Complete Fresh Start
 ```bash
-./scripts/dev-clean.sh all
-./scripts/dev-setup.sh
+./scripts/clean.sh
+./scripts/start.sh
 ```

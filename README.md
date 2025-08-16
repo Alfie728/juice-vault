@@ -97,9 +97,11 @@ View traces in Grafana:
 
 ## 📚 Documentation
 
+- [Quick Start Guide](./docs/QUICKSTART.md) - Get up and running quickly
+- [Development Guide](./docs/DEVELOPMENT.md) - Development workflow and common tasks
+- [Architecture & Patterns](./docs/PATTERNS.md) - Code patterns and best practices
 - [Docker Setup Guide](./docs/DOCKER.md) - Complete Docker and observability setup
 - [API Documentation](./docs/API.md) - tRPC API endpoints
-- [Development Guide](./docs/DEVELOPMENT.md) - Development workflow
 
 ## 🛠️ Tech Stack
 
@@ -115,16 +117,25 @@ View traces in Grafana:
 ```
 juice-vault/
 ├── src/
-│   ├── app/          # Next.js app router
-│   ├── server/       # tRPC API routes
-│   ├── domain/       # Business logic
-│   │   └── ai/       # AI services (lyrics)
-│   ├── features/     # Feature modules
-│   └── components/   # Shared components
-├── dev.sh           # Main development CLI
-├── deploy.sh        # Production deployment
-├── docs/            # Documentation
-└── docker-compose.yml # Docker configuration
+│   ├── app/             # Next.js 15 app router
+│   ├── server/          # tRPC API routes
+│   ├── domain/          # Business logic (Effect-based services)
+│   │   ├── ai/          # AI services (lyrics transcription)
+│   │   ├── infra/       # Infrastructure services (S3)
+│   │   ├── lyrics/      # Lyrics domain service
+│   │   └── song/        # Song domain service
+│   ├── features/        # Feature modules
+│   │   ├── song/        # Song management components
+│   │   ├── player/      # Music player component
+│   │   └── shared/      # Shared UI components
+│   └── trpc/            # tRPC configuration
+├── scripts/             # Individual task scripts
+│   ├── start.sh         # Start all services
+│   ├── stop.sh          # Stop all services
+│   └── ...              # Other single-purpose scripts
+├── docs/                # Documentation
+├── docker-compose.yml   # Docker configuration
+└── prisma/              # Database schema
 ```
 
 ## 🔧 Environment Variables
