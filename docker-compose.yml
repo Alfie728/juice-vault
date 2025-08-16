@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # Grafana LGTM Stack (Loki, Grafana, Tempo, Mimir/Prometheus)
+  # This provides complete observability for your application
+  otel-lgtm:
+    image: docker.io/grafana/otel-lgtm:latest
+    container_name: juice-vault-otel
+    ports:
+      # Grafana UI - Access dashboards and visualizations
+      - "3001:3000"
+      # OpenTelemetry GRPC endpoint - For sending traces via GRPC
+      - "4317:4317"
+      # OpenTelemetry HTTP endpoint - For sending traces via HTTP
+      - "4318:4318"
+      # Prometheus metrics endpoint (optional, uncomment if needed)
+      # - "9090:9090"
+    environment:
+      # Configure OTLP receiver to accept traces
+      - ENABLE_LOGS_GRAFANA=true
+      - ENABLE_LOGS_LOKI=true
+      - ENABLE_METRICS_GRAFANA=true
+      - ENABLE_METRICS_PROMETHEUS=true
+      - ENABLE_TRACES_GRAFANA=true
+      - ENABLE_TRACES_TEMPO=true
+    volumes:
+      # Persist Grafana data
+      - grafana-storage:/var/lib/grafana
+      # Persist Tempo data
+      - tempo-storage:/var/lib/tempo
+      # Persist Prometheus data
+      - prometheus-storage:/prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Database (if you want to run it locally)
+  # Uncomment this section if you want to use local PostgreSQL instead of Neon
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: juice-vault-db
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: juicevault
+  #     POSTGRES_PASSWORD: juicevault_password
+  #     POSTGRES_DB: juicevault
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U juicevault"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # MinIO for local S3-compatible storage (development only)
+  # Uncomment if you want to test S3 functionality locally
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: juice-vault-minio
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   command: server /data --console-address ":9001"
+  #   volumes:
+  #     - minio-data:/data
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+
+volumes:
+  grafana-storage:
+    driver: local
+  tempo-storage:
+    driver: local
+  prometheus-storage:
+    driver: local
+  # postgres-data:
+  #   driver: local
+  # minio-data:
+  #   driver: local
+
+networks:
+  default:
+    name: juice-vault-network
+    driver: bridge

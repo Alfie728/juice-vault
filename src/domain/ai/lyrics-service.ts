@@ -15,8 +15,18 @@ export const LyricLine = Schema.Struct({
 
 export type LyricLine = Schema.Schema.Type<typeof LyricLine>;
 
+// Define a union type for accepted audio input formats
+export const AudioData = Schema.Union(
+  Schema.String, // URL or base64 string
+  Schema.instanceOf(Buffer), // Node.js Buffer
+  Schema.instanceOf(Uint8Array), // Uint8Array
+  Schema.instanceOf(ArrayBuffer) // ArrayBuffer
+);
+
+export type AudioData = Schema.Schema.Type<typeof AudioData>;
+
 export const GenerateLyricsInput = Schema.Struct({
-  audioUrl: Schema.String,
+  audioUrl: AudioData,
   songTitle: Schema.String,
   artist: Schema.String,
   duration: Schema.optional(Schema.Number),
@@ -27,7 +37,7 @@ export type GenerateLyricsInput = Schema.Schema.Type<
 >;
 
 export const SyncLyricsInput = Schema.Struct({
-  audioUrl: Schema.String,
+  audioUrl: Schema.String, // For sync, we only need a URL reference
   fullLyrics: Schema.String,
   duration: Schema.optional(Schema.Number),
 });
@@ -44,7 +54,18 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
       return {
         generateLyrics: (input: GenerateLyricsInput) =>
           pipe(
-            Schema.decodeUnknown(GenerateLyricsInput)(input),
+            // Validation span
+            Effect.withSpan(
+              Schema.decodeUnknown(GenerateLyricsInput)(input),
+              "lyrics.validate_input",
+              {
+                attributes: {
+                  "lyrics.song_title": input.songTitle ?? "unknown",
+                  "lyrics.artist": input.artist ?? "unknown",
+                  "lyrics.has_duration": Boolean(input.duration),
+                },
+              }
+            ),
             Effect.mapError(
               (error) =>
                 new ValidationError({
@@ -53,31 +74,118 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                 })
             ),
             Effect.flatMap((validInput) =>
-              Effect.tryPromise({
-                try: async () => {
-                  const { text } = await transcribe({
-                    model: transcriptionModel,
-                    audio: validInput.audioUrl,
-                  });
+              pipe(
+                // Audio preparation span
+                Effect.withSpan(
+                  Effect.try({
+                    try: () => {
+                      const inputAudioData = validInput.audioUrl;
+                      let processedAudioData: Buffer | Uint8Array | ArrayBuffer;
+                      let audioSize = 0;
+                      let audioFormat = "unknown";
 
-                  return text;
-                },
-                catch: (error) =>
-                  new AiError({
-                    cause: error,
-                    description: `Failed to generate lyrics: ${String(error)}`,
-                    method: "generateLyrics",
-                    module: "lyrics-service",
+                      if (Buffer.isBuffer(inputAudioData)) {
+                        processedAudioData = inputAudioData;
+                        audioSize = inputAudioData.length;
+                        audioFormat = "buffer";
+                      } else if (typeof inputAudioData === "string") {
+                        if (inputAudioData.startsWith("http")) {
+                          throw new Error(
+                            "Direct URL transcription not supported. Please download the file first."
+                          );
+                        } else if (inputAudioData.includes("base64")) {
+                          const base64Data = inputAudioData.split(",")[1] ?? inputAudioData;
+                          const bufferData = Buffer.from(base64Data, "base64");
+                          processedAudioData = bufferData;
+                          audioSize = bufferData.length;
+                          audioFormat = "base64";
+                        } else {
+                          throw new Error("Invalid audio data format");
+                        }
+                      } else if (inputAudioData instanceof Uint8Array) {
+                        processedAudioData = inputAudioData;
+                        audioSize = inputAudioData.length;
+                        audioFormat = "uint8array";
+                      } else if (inputAudioData instanceof ArrayBuffer) {
+                        processedAudioData = inputAudioData;
+                        audioSize = inputAudioData.byteLength;
+                        audioFormat = "arraybuffer";
+                      } else {
+                        throw new Error(
+                          `Unsupported audio data type: ${typeof inputAudioData}`
+                        );
+                      }
+
+                      return { audioData: processedAudioData, audioSize, audioFormat };
+                    },
+                    catch: (error) =>
+                      new AiError({
+                        cause: error,
+                        description: `Failed to prepare audio: ${String(error)}`,
+                        method: "generateLyrics",
+                        module: "lyrics-service",
+                      }),
                   }),
-              })
+                  "lyrics.prepare_audio"
+                ),
+                Effect.flatMap(({ audioData, audioSize, audioFormat }) =>
+                  // Transcription span with attributes
+                  Effect.withSpan(
+                    Effect.tryPromise({
+                      try: async () => {
+                        const startTime = Date.now();
+                        const { text } = await transcribe({
+                          model: transcriptionModel,
+                          audio: audioData,
+                        });
+                        const duration = Date.now() - startTime;
+
+                        // Add event for successful transcription
+                        Effect.logInfo("Transcription completed", {
+                          duration,
+                          textLength: text.length,
+                        }).pipe(Effect.runSync);
+
+                        return text;
+                      },
+                      catch: (error) =>
+                        new AiError({
+                          cause: error,
+                          description: `Failed to transcribe audio: ${String(error)}`,
+                          method: "generateLyrics",
+                          module: "lyrics-service",
+                        }),
+                    }),
+                    "lyrics.transcribe_audio",
+                    {
+                      attributes: {
+                        "lyrics.audio_size_bytes": audioSize,
+                        "lyrics.audio_format": audioFormat,
+                        "lyrics.model": "whisper-1",
+                        "lyrics.song_title": validInput.songTitle,
+                        "lyrics.artist": validInput.artist,
+                      },
+                    }
+                  )
+                )
+              )
             ),
-            Effect.withSpan("generateLyrics"),
+            Effect.withSpan("generateLyrics", {
+              attributes: {
+                "operation.type": "audio_transcription",
+                "ai.model": "whisper-1",
+              },
+            }),
             Effect.retry(Schedule.exponential("600 millis"))
           ),
 
         syncLyricsWithTimestamps: (input: SyncLyricsInput) =>
           pipe(
-            Schema.decodeUnknown(SyncLyricsInput)(input),
+            // Input validation span
+            Effect.withSpan(
+              Schema.decodeUnknown(SyncLyricsInput)(input),
+              "lyrics.sync.validate_input"
+            ),
             Effect.mapError(
               (error) =>
                 new ValidationError({
@@ -86,89 +194,157 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                 })
             ),
             Effect.flatMap((validInput) =>
-              Effect.tryPromise({
-                try: async () => {
-                  const lines = validInput.fullLyrics
-                    .split("\n")
-                    .filter((line) => line.trim());
-                  const averageTimePerLine = validInput.duration
-                    ? validInput.duration / lines.length
-                    : 3;
-
-                  const prompt = `
-                  Given these lyrics, estimate reasonable timestamps for each line.
-                  Each line should have a start time in seconds.
-                  ${validInput.duration ? `Total song duration: ${validInput.duration} seconds` : ""}
-                  Average time per line: ${averageTimePerLine} seconds
-
-                  Lyrics:
-                  ${validInput.fullLyrics}
-
-                  Consider natural pauses, chorus repetitions, and typical song structure.
-                  Return timestamps that feel natural for the flow of the song.
-                `;
-
-                  const { object } = await generateObject({
-                    model: generationModel,
-                    prompt,
-                    schema: z.object({
-                      lines: z.array(
-                        z.object({
-                          text: z.string(),
-                          startTime: z.number(),
-                          endTime: z.number().optional(),
-                        })
-                      ),
-                    }),
-                  });
-
-                  return object.lines as LyricLine[];
-                },
-                catch: (error) =>
-                  new AiError({
-                    method: "generateLyrics",
-                    module: "lyrics-service",
-                    cause: error,
-                    description: `Failed to generate lyrics: ${String(error)}`,
+              pipe(
+                // Lyrics preprocessing span
+                Effect.withSpan(
+                  Effect.sync(() => {
+                    const lines = validInput.fullLyrics
+                      .split("\n")
+                      .filter((line) => line.trim());
+                    const averageTimePerLine = validInput.duration
+                      ? validInput.duration / lines.length
+                      : 3;
+                    
+                    return {
+                      lines,
+                      averageTimePerLine,
+                      lineCount: lines.length,
+                      totalDuration: validInput.duration ?? lines.length * 3,
+                    };
                   }),
-              })
+                  "lyrics.sync.preprocess",
+                  {
+                    attributes: {
+                      "lyrics.full_text_length": validInput.fullLyrics.length,
+                      "lyrics.has_duration": Boolean(validInput.duration),
+                    },
+                  }
+                ),
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                Effect.flatMap(({ lines, averageTimePerLine, lineCount, totalDuration }) =>
+                  // GPT-4 timestamp generation span
+                  Effect.withSpan(
+                    Effect.tryPromise({
+                      try: async () => {
+                        const prompt = `
+                        Given these lyrics, estimate reasonable timestamps for each line.
+                        Each line should have a start time in seconds.
+                        Total song duration: ${totalDuration} seconds
+                        Average time per line: ${averageTimePerLine.toFixed(2)} seconds
+
+                        Lyrics:
+                        ${validInput.fullLyrics}
+
+                        Consider natural pauses, chorus repetitions, and typical song structure.
+                        Return timestamps that feel natural for the flow of the song.
+                      `;
+
+                        const startTime = Date.now();
+                        const { object } = await generateObject({
+                          model: generationModel,
+                          prompt,
+                          schema: z.object({
+                            lines: z.array(
+                              z.object({
+                                text: z.string(),
+                                startTime: z.number(),
+                                endTime: z.number().optional(),
+                              })
+                            ),
+                          }),
+                        });
+                        const duration = Date.now() - startTime;
+
+                        // Log successful generation
+                        Effect.logInfo("Timestamps generated", {
+                          duration,
+                          lineCount: object.lines.length,
+                        }).pipe(Effect.runSync);
+
+                        return object.lines as LyricLine[];
+                      },
+                      catch: (error) =>
+                        new AiError({
+                          method: "syncLyricsWithTimestamps",
+                          module: "lyrics-service",
+                          cause: error,
+                          description: `Failed to generate timestamps: ${String(error)}`,
+                        }),
+                    }),
+                    "lyrics.sync.generate_timestamps",
+                    {
+                      attributes: {
+                        "lyrics.line_count": lineCount,
+                        "lyrics.total_duration": totalDuration,
+                        "lyrics.avg_time_per_line": averageTimePerLine,
+                        "ai.model": "gpt-4o",
+                      },
+                    }
+                  )
+                )
+              )
             ),
-            Effect.withSpan("syncLyricsWithTimestamps"),
-            Effect.retry(Schedule.exponential("600 millis")),
-            Effect.withSpan("syncLyricsWithTimestampsRetry")
+            Effect.withSpan("syncLyricsWithTimestamps", {
+              attributes: {
+                "operation.type": "timestamp_generation",
+                "ai.model": "gpt-4o",
+              },
+            }),
+            Effect.retry(Schedule.exponential("600 millis"))
           ),
 
         improveTimestamps: (
           lines: LyricLine[],
           audioAnalysis?: { beats?: number[]; tempo?: number }
         ) =>
-          Effect.try({
-            try: () => {
-              if (!audioAnalysis?.beats) {
-                return lines;
-              }
+          Effect.withSpan(
+            Effect.try({
+              try: () => {
+                if (!audioAnalysis?.beats) {
+                  Effect.logDebug("No audio analysis provided, returning original timestamps")
+                    .pipe(Effect.runSync);
+                  return lines;
+                }
 
-              return lines.map((line, index) => {
-                const nearestBeat = audioAnalysis.beats?.reduce((prev, curr) =>
-                  Math.abs(curr - line.startTime) <
-                  Math.abs(prev - line.startTime)
-                    ? curr
-                    : prev
-                );
+                const improvedLines = lines.map((line, index) => {
+                  const nearestBeat = audioAnalysis.beats?.reduce((prev, curr) =>
+                    Math.abs(curr - line.startTime) <
+                    Math.abs(prev - line.startTime)
+                      ? curr
+                      : prev
+                  );
 
-                return {
-                  ...line,
-                  startTime: nearestBeat ?? line.startTime,
-                  endTime: lines[index + 1]?.startTime ?? line.endTime,
-                };
-              });
-            },
-            catch: (error) =>
-              new ValidationError({
-                field: "improveTimestamps",
-                reason: String(error),
-              }),
-          }),
+                  return {
+                    ...line,
+                    startTime: nearestBeat ?? line.startTime,
+                    endTime: lines[index + 1]?.startTime ?? line.endTime,
+                  };
+                });
+
+                Effect.logInfo("Timestamps improved with beat alignment", {
+                  originalCount: lines.length,
+                  beatCount: audioAnalysis.beats?.length ?? 0,
+                  tempo: audioAnalysis.tempo ?? 0,
+                }).pipe(Effect.runSync);
+
+                return improvedLines;
+              },
+              catch: (error) =>
+                new ValidationError({
+                  field: "improveTimestamps",
+                  reason: String(error),
+                }),
+            }),
+            "lyrics.improve_timestamps",
+            {
+              attributes: {
+                "lyrics.line_count": lines.length,
+                "lyrics.has_audio_analysis": Boolean(audioAnalysis?.beats),
+                "lyrics.beat_count": audioAnalysis?.beats?.length ?? 0,
+                "lyrics.tempo": audioAnalysis?.tempo ?? 0,
+              },
+            }
+          ),
       };
     }),
     accessors: true,

@@ -6,11 +6,7 @@ import { LyricsService } from "~/domain/lyrics/service";
 import { client } from "~/jobs/client";
 import { generateLyricsJob } from "~/jobs/lyrics-generation";
 import { syncLyricsJob } from "~/jobs/lyrics-sync";
-import {
-  createTRPCRouter,
-  protectedProcedure,
-  publicProcedure,
-} from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const lyricsRouter = createTRPCRouter({
   create: protectedProcedure
