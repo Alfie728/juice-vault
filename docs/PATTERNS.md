@@ -24,19 +24,19 @@ All business logic uses Effect for functional error handling and composition:
 export class LyricsAIService extends Effect.Service<LyricsAIService>()("LyricsAIService", {
   effect: Effect.gen(function* () {
     const openai = yield* OpenAIService;
-    
+
     return {
       generateLyrics: (input: GenerateLyricsInput) =>
         Effect.gen(function* () {
           // Validate input
           const validInput = yield* Schema.decodeUnknown(GenerateLyricsInputSchema)(input);
-          
+
           // Process with error handling
           const result = yield* Effect.tryPromise({
             try: () => openai.transcribe(validInput.audioUrl),
             catch: (error) => new AiError({ message: "Transcription failed" })
           });
-          
+
           return result;
         }).pipe(
           Effect.withSpan("generateLyrics", { attributes: { songTitle: input.songTitle } })
@@ -148,7 +148,7 @@ const song = await ctx.db.song.findUnique({
 export class SongService extends Effect.Service<SongService>()("SongService", {
   effect: Effect.gen(function* () {
     const db = yield* Database;
-    
+
     return {
       searchSongs: (query: string) =>
         Effect.tryPromise({
@@ -198,11 +198,30 @@ src/features/
 **Server Components (default in app directory):**
 ```typescript
 // src/app/(home)/page.tsx
+import { HydrateClient, prefetch, trpc } from "~/trpc/server";
+
 export default async function HomePage() {
-  // Can fetch data directly
-  const songs = await api.song.list();
+  // Prefetch data on the server - this populates the query cache
+  prefetch(trpc.song.list.queryOptions());
   
-  return <SongGrid songs={songs} />;
+  // Prefetch multiple queries (they run in parallel automatically)
+  prefetch(trpc.song.list.queryOptions());
+  prefetch(trpc.user.me.queryOptions());
+  
+  return (
+    <HydrateClient>
+      {/* Client components can now use the prefetched data */}
+      <SongGrid />
+    </HydrateClient>
+  );
+}
+
+// Alternative: Direct server-side call (without client hydration)
+export default async function HomePage() {
+  // Direct call - useful for data that won't be used by client components
+  const songs = await trpc.song.list.query();
+  
+  return <StaticSongList songs={songs} />;
 }
 ```
 
@@ -211,20 +230,28 @@ export default async function HomePage() {
 // src/features/song/components/SongCard.tsx
 "use client";
 
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { api } from "~/trpc/react";
+import { toast } from "sonner";
+import { useTRPC } from "~/trpc/react";
 
 export function SongCard({ song }: { song: Song }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const utils = api.useUtils();
-  
-  const deleteSong = api.song.delete.useMutation({
-    onSuccess: () => {
-      utils.song.list.invalidate();
-      toast.success("Song deleted");
-    },
-  });
-  
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
+  const deleteSong = useMutation(
+    trpc.song.delete.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: trpc.song.list.queryKey(),
+        });
+        toast.success("Song deleted");
+      },
+    })
+  );
+
   return (
     <motion.div
       whileHover={{ scale: 1.05 }}
@@ -238,36 +265,132 @@ export function SongCard({ song }: { song: Song }) {
 
 ### 3. Data Fetching Patterns
 
-**Using tRPC hooks:**
+**Server-Side Prefetching Pattern:**
 ```typescript
-// Query
-const { data: songs, isLoading } = api.song.list.useQuery();
+// Server Component with prefetching
+import { HydrateClient, prefetch, trpc } from "~/trpc/server";
 
-// Mutation
-const createSong = api.song.create.useMutation({
-  onSuccess: () => {
-    // Invalidate and refetch
-    utils.song.list.invalidate();
-  },
+export default async function Page() {
+  // Prefetch populates the query cache on the server
+  // Note: prefetch() runs in the background - no await needed
+  prefetch(trpc.song.list.queryOptions());
+  
+  return (
+    <HydrateClient>
+      {/* Client components receive hydrated data - no loading state! */}
+      <ClientComponent />
+    </HydrateClient>
+  );
+}
+
+// Client Component using prefetched data
+"use client";
+import { useQuery } from "@tanstack/react-query";
+import { useTRPC } from "~/trpc/react";
+
+function ClientComponent() {
+  const trpc = useTRPC();
+  // This will use prefetched data immediately, no loading state
+  const { data: songs } = useQuery(trpc.song.list.queryOptions());
+  
+  return <SongGrid songs={songs} />;
+}
+```
+
+**Benefits of Prefetching:**
+- ✅ No loading spinners on initial page load
+- ✅ Better SEO - data is rendered on the server
+- ✅ Faster perceived performance
+- ✅ Automatic deduplication - client won't refetch
+- ✅ Type-safe from server to client
+
+**When to Use Each Pattern:**
+- **`prefetch()`** - When client components need the data (hydration pattern)
+- **`.query()`** - When only server components need the data (no client hydration)
+- **Note:** `prefetch()` runs in the background and doesn't block rendering
+
+**Using tRPC with Tanstack Query v5:**
+```typescript
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTRPC } from "~/trpc/react";
+
+// Get the tRPC client
+const trpc = useTRPC();
+
+// Query - using queryOptions with useQuery
+const { data: songs, isLoading } = useQuery(
+  trpc.song.list.queryOptions()
+);
+
+// Query with parameters
+const { data: searchResults } = useQuery({
+  ...trpc.song.search.queryOptions({ query: searchQuery, type: "text" }),
+  enabled: searchQuery.length > 2, // Conditional fetching
 });
+
+// Mutation - using mutationOptions with useMutation
+const uploadMutation = useMutation(
+  trpc.song.upload.mutationOptions()
+);
+
+// Mutation with callbacks
+const deleteMutation = useMutation(
+  trpc.song.delete.mutationOptions({
+    onSuccess: () => {
+      toast.success("Song deleted");
+      // Invalidate queries
+      queryClient.invalidateQueries({
+        queryKey: trpc.song.list.queryKey()
+      });
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  })
+);
+
+// Using mutation
+const handleDelete = async (id: string) => {
+  await deleteMutation.mutateAsync({ id });
+};
 
 // Optimistic updates
-const updateSong = api.song.update.useMutation({
-  onMutate: async (newData) => {
-    await utils.song.get.cancel({ id: newData.id });
-    const previousSong = utils.song.get.getData({ id: newData.id });
-    
-    utils.song.get.setData({ id: newData.id }, (old) => ({
-      ...old!,
-      ...newData,
-    }));
-    
-    return { previousSong };
-  },
-  onError: (err, newData, context) => {
-    utils.song.get.setData({ id: newData.id }, context?.previousSong);
-  },
-});
+const updateMutation = useMutation(
+  trpc.song.update.mutationOptions({
+    onMutate: async (newData) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({
+        queryKey: trpc.song.get.queryKey({ id: newData.id })
+      });
+
+      // Snapshot the previous value
+      const previousSong = queryClient.getQueryData(
+        trpc.song.get.queryKey({ id: newData.id })
+      );
+
+      // Optimistically update
+      queryClient.setQueryData(
+        trpc.song.get.queryKey({ id: newData.id }),
+        (old) => ({ ...old, ...newData })
+      );
+
+      return { previousSong };
+    },
+    onError: (err, newData, context) => {
+      // Rollback on error
+      queryClient.setQueryData(
+        trpc.song.get.queryKey({ id: newData.id }),
+        context?.previousSong
+      );
+    },
+    onSettled: () => {
+      // Always refetch after error or success
+      queryClient.invalidateQueries({
+        queryKey: trpc.song.get.queryKey({ id: newData.id })
+      });
+    }
+  })
+);
 ```
 
 ### 4. State Management Patterns
@@ -281,12 +404,12 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
-  
+
   const play = useCallback((song: Song) => {
     setCurrentSong(song);
     setIsPlaying(true);
   }, []);
-  
+
   return (
     <AudioPlayerContext.Provider value={{ currentSong, isPlaying, play }}>
       {children}
@@ -430,14 +553,14 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
 Effect.gen(function* () {
   const result = yield* Effect.tryPromise({
     try: () => someAsyncOperation(),
-    catch: (error) => new AiError({ 
-      message: "Operation failed", 
-      cause: error 
+    catch: (error) => new AiError({
+      message: "Operation failed",
+      cause: error
     }),
   });
   return result;
 }).pipe(
-  Effect.catchTag("AiError", (error) => 
+  Effect.catchTag("AiError", (error) =>
     Effect.succeed({ error: error.message })
   )
 );
@@ -478,13 +601,13 @@ export function ErrorBoundary({ children }: { children: React.ReactNode }) {
 // src/domain/ai/lyrics.test.ts
 const testProgram = Effect.gen(function* () {
   const lyricsService = yield* LyricsAIService;
-  
+
   const result = yield* lyricsService.generateLyrics({
     audioUrl: testAudioBuffer,
     songTitle: "Test Song",
     artist: "Test Artist",
   });
-  
+
   expect(result).toBeDefined();
 }).pipe(
   Effect.provide(LyricsAIService.Default),
@@ -522,14 +645,15 @@ const MusicPlayer = dynamic(
 
 ### 3. Query Optimization
 ```typescript
-// Parallel queries
+// Parallel queries (for direct server-side calls)
 const [songs, user] = await Promise.all([
-  api.song.list(),
-  api.user.me(),
+  trpc.song.list.query(),
+  trpc.user.me.query(),
 ]);
 
-// Prefetching
-await utils.song.list.prefetch();
+// Prefetching (for hydration - runs in background)
+prefetch(trpc.song.list.queryOptions());
+prefetch(trpc.user.me.queryOptions());
 ```
 
 ## Environment Configuration

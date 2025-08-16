@@ -99,9 +99,8 @@ View traces in Grafana:
 
 - [Quick Start Guide](./docs/QUICKSTART.md) - Get up and running quickly
 - [Development Guide](./docs/DEVELOPMENT.md) - Development workflow and common tasks
-- [Architecture & Patterns](./docs/PATTERNS.md) - Code patterns and best practices
+- [Architecture & Patterns](./docs/PATTERNS.md) - Code patterns, tRPC API usage, and best practices
 - [Docker Setup Guide](./docs/DOCKER.md) - Complete Docker and observability setup
-- [API Documentation](./docs/API.md) - tRPC API endpoints
 
 ## 🛠️ Tech Stack
 

@@ -1,11 +1,14 @@
-import { Suspense } from "react";
-import { LoadingSpinner } from "~/features/shared/components/LoadingSpinner";
+import { HydrateClient, prefetch, trpc } from "~/trpc/server";
+
 import { JuiceVaultContent } from "./_components/JuiceVaultContent";
 
-export default function Home() {
+export default async function Home() {
+  // Prefetch the songs list on the server
+  prefetch(trpc.song.list.queryOptions());
+
   return (
-    <Suspense fallback={<LoadingSpinner />}>
+    <HydrateClient>
       <JuiceVaultContent />
-    </Suspense>
+    </HydrateClient>
   );
 }
