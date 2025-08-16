@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server";
 import { Effect, Schedule } from "effect";
 import { z } from "zod";
 
-import { AiError } from "~/domain/ai/errors";
 import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { LyricsService } from "~/domain/lyrics/service";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
@@ -140,9 +139,17 @@ export const lyricsRouter = createTRPCRouter({
         const lyricsAI = yield* LyricsAIService;
 
         // Check if lyrics already exist
-        const existingLyrics = yield* lyricsService
-          .getLyricsBySongId(input.songId)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const existingLyrics = yield* Effect.withSpan(
+          lyricsService
+            .getLyricsBySongId(input.songId)
+            .pipe(Effect.catchAll(() => Effect.succeed(null))),
+          "lyrics.check_existing",
+          {
+            attributes: {
+              "lyrics.song_id": input.songId,
+            },
+          }
+        );
 
         if (existingLyrics) {
           return {
@@ -154,64 +161,78 @@ export const lyricsRouter = createTRPCRouter({
         }
 
         // First, fetch the audio file from the URL
-        const audioResponse = yield* Effect.tryPromise({
-          try: async () => {
-            const response = await fetch(input.audioUrl);
-            if (!response.ok) {
-              throw new Error(`Failed to fetch audio: ${response.statusText}`);
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          },
-          catch: (error) =>
-            new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Failed to fetch audio file: ${String(error)}`,
-            }),
-        });
+        const audioResponse = yield* Effect.withSpan(
+          Effect.tryPromise({
+            try: async () => {
+              const response = await fetch(input.audioUrl);
+              if (!response.ok) {
+                throw new Error(
+                  `Failed to fetch audio: ${response.statusText}`
+                );
+              }
+              const arrayBuffer = await response.arrayBuffer();
+              return Buffer.from(arrayBuffer);
+            },
+            catch: (error) =>
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `Failed to fetch audio file: ${String(error)}`,
+              }),
+          }),
+          "lyrics.fetch_audio",
+          {
+            attributes: {
+              "audio.url": input.audioUrl,
+              "audio.song_title": input.songTitle,
+              "audio.artist": input.artist,
+            },
+          }
+        );
 
         // Generate lyrics using AI transcription with retry logic
-        const transcribedText = yield* lyricsAI
-          .generateLyrics({
-            audioUrl: audioResponse,
-            songTitle: input.songTitle,
-            artist: input.artist,
-            duration: input.duration,
-          })
-          .pipe(
-            // Retry with exponential backoff starting at 1 second, max 5 attempts
-            // Only retry for AI-related errors (network, API limits, etc.)
-            Effect.retry({
-              schedule: Schedule.exponential("1 second"),
-              while: (error) => error._tag === "AiError", // More idiomatic for tagged errors
-              times: 5,
-            }),
-            // Log errors during retry
-            Effect.tapError((error) =>
-              Effect.sync(() =>
-                console.error(
-                  "Lyrics generation attempt failed, retrying:",
-                  error
-                )
-              )
+        const transcribedText = yield* Effect.withSpan(
+          lyricsAI
+            .generateLyrics({
+              audioUrl: audioResponse,
+              songTitle: input.songTitle,
+              artist: input.artist,
+              duration: input.duration,
+            })
+            .pipe(
+              // Retry until we stop getting AI errors (i.e., until successful)
+              Effect.retry({
+                schedule: Schedule.exponential("1 second"),
+                until: (error) => error._tag !== "AiError",
+              })
             ),
-            // If all retries fail, fall back to a simple message
-            Effect.orElse(() =>
-              Effect.succeed(`${input.songTitle} by ${input.artist}
-
-[Instrumental]
-
-This track appears to be instrumental or the lyrics could not be transcribed.
-You can edit this to add lyrics manually if needed.`)
-            )
-          );
+          "lyrics.generate_with_retry",
+          {
+            attributes: {
+              "lyrics.song_title": input.songTitle,
+              "lyrics.artist": input.artist,
+              "lyrics.duration": input.duration ?? 0,
+              "lyrics.retry_max_attempts": 5,
+              "lyrics.retry_schedule": "exponential_1s",
+            },
+          }
+        );
 
         // Save the lyrics to database
-        const lyrics = yield* lyricsService.createLyrics({
-          songId: input.songId,
-          fullText: transcribedText,
-          isGenerated: true,
-        });
+        const lyrics = yield* Effect.withSpan(
+          lyricsService.createLyrics({
+            songId: input.songId,
+            fullText: transcribedText,
+            isGenerated: true,
+          }),
+          "lyrics.save_to_database",
+          {
+            attributes: {
+              "lyrics.song_id": input.songId,
+              "lyrics.is_generated": true,
+              "lyrics.text_length": transcribedText.length,
+            },
+          }
+        );
 
         return {
           success: true,
@@ -220,6 +241,13 @@ You can edit this to add lyrics manually if needed.`)
           lyricsId: lyrics.id,
         };
       }).pipe(
+        Effect.withSpan("lyrics.generateLyrics", {
+          attributes: {
+            "operation.type": "generate_lyrics",
+            "song.id": input.songId,
+            "song.title": input.songTitle,
+          },
+        }),
         Effect.catchTags({
           DatabaseError: (error: { message: string }) =>
             Effect.fail(
@@ -250,54 +278,51 @@ You can edit this to add lyrics manually if needed.`)
         const lyricsAI = yield* LyricsAIService;
 
         // Generate timestamps for the lyrics with retry logic
-        const syncedLines = yield* lyricsAI
-          .syncLyricsWithTimestamps({
-            audioUrl: input.audioUrl,
-            fullLyrics: input.fullLyrics,
-            duration: input.duration,
-          })
-          .pipe(
-            // Retry with exponential backoff, max 5 attempts for AI errors
-            Effect.retry({
-              schedule: Schedule.exponential("1 second"),
-              while: (error) => error._tag === "AiError", // Check for AI-specific errors
-              times: 5,
-            }),
-            // Log errors during retry
-            Effect.tapError((error) =>
-              Effect.sync(() =>
-                console.error("Sync attempt failed, retrying:", error)
-              )
-            ),
-            // If all retries fail, generate simple evenly-spaced timestamps
-            Effect.orElse(() => {
-              const lines = input.fullLyrics
-                .split("\n")
-                .filter((line) => line.trim());
-              const duration = input.duration ?? 180; // Default 3 minutes if no duration
-              const timePerLine = duration / Math.max(lines.length, 1);
-
-              return Effect.succeed(
-                lines.map((text, index) => ({
-                  text,
-                  startTime: index * timePerLine,
-                  endTime: (index + 1) * timePerLine,
-                }))
-              );
+        const syncedLines = yield* Effect.withSpan(
+          lyricsAI
+            .syncLyricsWithTimestamps({
+              audioUrl: input.audioUrl,
+              fullLyrics: input.fullLyrics,
+              duration: input.duration,
             })
-          );
+            .pipe(
+              // Retry until we stop getting AI errors (i.e., until successful)
+              Effect.retry({
+                schedule: Schedule.exponential("1 second"),
+                until: (error) => error._tag !== "AiError",
+              })
+            ),
+          "lyrics.sync_with_retry",
+          {
+            attributes: {
+              "lyrics.full_text_length": input.fullLyrics.length,
+              "lyrics.duration": input.duration ?? 180,
+              "lyrics.retry_max_attempts": 5,
+              "lyrics.retry_schedule": "exponential_1s",
+            },
+          }
+        );
 
         // Update the lyrics with the synced lines
         if (input.lyricsId) {
-          yield* lyricsService.updateLyrics({
-            id: input.lyricsId,
-            lines: syncedLines.map((line, index) => ({
-              text: line.text,
-              startTime: line.startTime,
-              endTime: line.endTime,
-              orderIndex: index,
-            })),
-          });
+          yield* Effect.withSpan(
+            lyricsService.updateLyrics({
+              id: input.lyricsId,
+              lines: syncedLines.map((line, index) => ({
+                text: line.text,
+                startTime: line.startTime,
+                endTime: line.endTime,
+                orderIndex: index,
+              })),
+            }),
+            "lyrics.update_with_timestamps",
+            {
+              attributes: {
+                "lyrics.id": input.lyricsId,
+                "lyrics.lines_count": syncedLines.length,
+              },
+            }
+          );
         }
 
         return {
@@ -306,6 +331,13 @@ You can edit this to add lyrics manually if needed.`)
           songId: input.songId,
         };
       }).pipe(
+        Effect.withSpan("lyrics.syncLyrics", {
+          attributes: {
+            "operation.type": "sync_lyrics",
+            "song.id": input.songId,
+            has_lyrics_id: Boolean(input.lyricsId),
+          },
+        }),
         Effect.catchTags({
           DatabaseError: (error: { message: string }) =>
             Effect.fail(

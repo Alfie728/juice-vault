@@ -14,6 +14,9 @@
  * - Development: Debug-enabled services
  */
 import { Layer, ManagedRuntime } from "effect";
+import { NodeSdk } from "@effect/opentelemetry";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 
 // import { EmbeddingsService } from "~/domain/ai/embeddings-service";
 import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
@@ -22,13 +25,28 @@ import { LyricsService } from "~/domain/lyrics/service";
 import { SongService } from "~/domain/song/service";
 import { PrismaClientService } from "~/lib/prisma";
 
+// OpenTelemetry layer - exact same config as working test file
+const NodeSdkLive = NodeSdk.layer(() => ({
+  resource: {
+    serviceName: "juice-vault",
+  },
+  spanProcessor: new BatchSpanProcessor(
+    new OTLPTraceExporter({
+      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+        ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`
+        : "http://localhost:4318/v1/traces",
+    })
+  ),
+}));
+
 const MainLayer = Layer.mergeAll(
   PrismaClientService.Default,
   // EmbeddingsService.Default, // Commented out - no Upstash Vector config needed
   LyricsService.Default,
   LyricsAIService.Default,
   S3Service.Default,
-  SongService.Default
+  SongService.Default,
+  NodeSdkLive // Add OpenTelemetry layer
 );
 
 export const ServiceRuntime = ManagedRuntime.make(MainLayer);
