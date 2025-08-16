@@ -1,3 +1,4 @@
+import { HttpClient } from "@effect/platform";
 import { TRPCError } from "@trpc/server";
 import { Effect, Schedule } from "effect";
 import { z } from "zod";
@@ -134,9 +135,79 @@ export const lyricsRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const program = Effect.gen(function* () {
-        const lyricsService = yield* LyricsService;
+      // AI transcription program - handles audio fetching and transcription
+      const transcribeAudioProgram = Effect.gen(function* () {
         const lyricsAI = yield* LyricsAIService;
+        const httpClient = yield* HttpClient.HttpClient;
+
+        // First, fetch the audio file from the URL using Effect's HTTP client
+        const response = yield* httpClient.get(input.audioUrl);
+        const audioArrayBuffer = yield* response.arrayBuffer;
+        const audioBuffer = Buffer.from(audioArrayBuffer);
+
+        // Generate lyrics using AI transcription
+        return yield* lyricsAI.generateLyrics({
+          audioUrl: audioBuffer,
+          songTitle: input.songTitle,
+          artist: input.artist,
+          duration: input.duration,
+        });
+      }).pipe(
+        // Retry until we stop getting AI errors (i.e., until successful)
+        Effect.retry({
+          schedule: Schedule.exponential("1 second"),
+          until: (error) => error._tag !== "AiError",
+        }),
+        // Handle specific error types gracefully
+        Effect.catchTags({
+          ValidationError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Validation error: ${error.message}`,
+              })
+            );
+          },
+          RequestError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Failed to fetch audio file: ${error.message}`,
+              })
+            );
+          },
+          ResponseError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `Network error while fetching audio: ${error.message}`,
+              })
+            );
+          },
+          AiError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `AI error while generating lyrics: ${error.message}`,
+              })
+            );
+          },
+        }),
+        // Add spans for the entire AI operation
+        Effect.withSpan("lyrics.generate_with_retry", {
+          attributes: {
+            "lyrics.song_title": input.songTitle,
+            "lyrics.artist": input.artist,
+            "lyrics.duration": input.duration ?? 0,
+            "lyrics.retry_max_attempts": 5,
+            "lyrics.retry_schedule": "exponential_1s",
+          },
+        })
+      );
+
+      // Main lyrics generation program - orchestrates transcription and database operations
+      const generateLyricsProgram = Effect.gen(function* () {
+        const lyricsService = yield* LyricsService;
 
         // Check if lyrics already exist
         const existingLyrics = yield* Effect.withSpan(
@@ -160,62 +231,8 @@ export const lyricsRouter = createTRPCRouter({
           };
         }
 
-        // First, fetch the audio file from the URL
-        const audioResponse = yield* Effect.withSpan(
-          Effect.tryPromise({
-            try: async () => {
-              const response = await fetch(input.audioUrl);
-              if (!response.ok) {
-                throw new Error(
-                  `Failed to fetch audio: ${response.statusText}`
-                );
-              }
-              const arrayBuffer = await response.arrayBuffer();
-              return Buffer.from(arrayBuffer);
-            },
-            catch: (error) =>
-              new TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: `Failed to fetch audio file: ${String(error)}`,
-              }),
-          }),
-          "lyrics.fetch_audio",
-          {
-            attributes: {
-              "audio.url": input.audioUrl,
-              "audio.song_title": input.songTitle,
-              "audio.artist": input.artist,
-            },
-          }
-        );
-
-        // Generate lyrics using AI transcription with retry logic
-        const transcribedText = yield* Effect.withSpan(
-          lyricsAI
-            .generateLyrics({
-              audioUrl: audioResponse,
-              songTitle: input.songTitle,
-              artist: input.artist,
-              duration: input.duration,
-            })
-            .pipe(
-              // Retry until we stop getting AI errors (i.e., until successful)
-              Effect.retry({
-                schedule: Schedule.exponential("1 second"),
-                until: (error) => error._tag !== "AiError",
-              })
-            ),
-          "lyrics.generate_with_retry",
-          {
-            attributes: {
-              "lyrics.song_title": input.songTitle,
-              "lyrics.artist": input.artist,
-              "lyrics.duration": input.duration ?? 0,
-              "lyrics.retry_max_attempts": 5,
-              "lyrics.retry_schedule": "exponential_1s",
-            },
-          }
-        );
+        // Get transcribed text from AI transcription program
+        const transcribedText = yield* transcribeAudioProgram;
 
         // Save the lyrics to database
         const lyrics = yield* Effect.withSpan(
@@ -249,17 +266,24 @@ export const lyricsRouter = createTRPCRouter({
           },
         }),
         Effect.catchTags({
-          DatabaseError: (error: { message: string }) =>
+          DatabaseError: (error) =>
             Effect.fail(
               new TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
                 message: error.message,
               })
             ),
+          ValidationError: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: error.message,
+              })
+            ),
         })
       );
 
-      return ctx.runtime.runPromise(program);
+      return ctx.runtime.runPromise(generateLyricsProgram);
     }),
 
   syncLyrics: protectedProcedure
@@ -273,35 +297,58 @@ export const lyricsRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const program = Effect.gen(function* () {
-        const lyricsService = yield* LyricsService;
+      // AI timestamp generation program - generates timing for lyrics
+      const generateTimestampsProgram = Effect.gen(function* () {
         const lyricsAI = yield* LyricsAIService;
 
-        // Generate timestamps for the lyrics with retry logic
-        const syncedLines = yield* Effect.withSpan(
-          lyricsAI
-            .syncLyricsWithTimestamps({
-              audioUrl: input.audioUrl,
-              fullLyrics: input.fullLyrics,
-              duration: input.duration,
-            })
-            .pipe(
-              // Retry until we stop getting AI errors (i.e., until successful)
-              Effect.retry({
-                schedule: Schedule.exponential("1 second"),
-                until: (error) => error._tag !== "AiError",
+        // Generate timestamps for the lyrics
+        return yield* lyricsAI.syncLyricsWithTimestamps({
+          audioUrl: input.audioUrl,
+          fullLyrics: input.fullLyrics,
+          duration: input.duration,
+        });
+      }).pipe(
+        // Retry until we stop getting AI errors (i.e., until successful)
+        Effect.retry({
+          schedule: Schedule.exponential("1 second"),
+          until: (error) => error._tag !== "AiError",
+        }),
+        // Handle specific error types gracefully
+        Effect.catchTags({
+          ValidationError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Validation error: ${error.message}`,
               })
-            ),
-          "lyrics.sync_with_retry",
-          {
-            attributes: {
-              "lyrics.full_text_length": input.fullLyrics.length,
-              "lyrics.duration": input.duration ?? 180,
-              "lyrics.retry_max_attempts": 5,
-              "lyrics.retry_schedule": "exponential_1s",
-            },
-          }
-        );
+            );
+          },
+          AiError: (error) => {
+            return Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `AI error: ${error.message}`,
+              })
+            );
+          },
+        }),
+        // Add spans for the entire AI operation
+        Effect.withSpan("lyrics.sync_with_retry", {
+          attributes: {
+            "lyrics.full_text_length": input.fullLyrics.length,
+            "lyrics.duration": input.duration ?? 180,
+            "lyrics.retry_max_attempts": 5,
+            "lyrics.retry_schedule": "exponential_1s",
+          },
+        })
+      );
+
+      // Main sync program - orchestrates timestamp generation and database update
+      const syncLyricsProgram = Effect.gen(function* () {
+        const lyricsService = yield* LyricsService;
+
+        // Get synced lines from AI timestamp generation program
+        const syncedLines = yield* generateTimestampsProgram;
 
         // Update the lyrics with the synced lines
         if (input.lyricsId) {
@@ -356,7 +403,7 @@ export const lyricsRouter = createTRPCRouter({
         })
       );
 
-      return ctx.runtime.runPromise(program);
+      return ctx.runtime.runPromise(syncLyricsProgram);
     }),
 
   delete: protectedProcedure

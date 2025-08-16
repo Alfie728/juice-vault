@@ -17,6 +17,8 @@ import { Layer, ManagedRuntime } from "effect";
 import { NodeSdk } from "@effect/opentelemetry";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { HttpClient } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
 
 // import { EmbeddingsService } from "~/domain/ai/embeddings-service";
 import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
@@ -46,7 +48,8 @@ const MainLayer = Layer.mergeAll(
   LyricsAIService.Default,
   S3Service.Default,
   SongService.Default,
-  NodeSdkLive // Add OpenTelemetry layer
+  NodeSdkLive, // Add OpenTelemetry layer
+  NodeHttpClient.layer // Add HTTP client layer
 );
 
 export const ServiceRuntime = ManagedRuntime.make(MainLayer);
