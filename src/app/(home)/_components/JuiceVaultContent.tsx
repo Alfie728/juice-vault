@@ -21,9 +21,9 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "~/features/shared/components/ui/toggle-group";
-import { AdvancedSongUploadDialog } from "~/features/song/components/AdvancedSongUploadDialog";
 import { SongGrid } from "~/features/song/components/SongGrid";
 import { SongList } from "~/features/song/components/SongList";
+import { SongUploadDialog } from "~/features/song/components/SongUploadDialog";
 import { useTRPC } from "~/trpc/react";
 
 export function JuiceVaultContent() {
@@ -63,7 +63,7 @@ export function JuiceVaultContent() {
 
             {/* Action Buttons */}
             <div className="mb-8 flex justify-center gap-4">
-              <AdvancedSongUploadDialog />
+              <SongUploadDialog />
               <Button
                 variant="outline"
                 className="gap-2 border-zinc-700 text-black hover:border-purple-600"
@@ -191,7 +191,7 @@ export function JuiceVaultContent() {
                     ? "No songs found"
                     : "No songs yet. Be the first to upload!"}
                 </p>
-                {!searchQuery && session && <AdvancedSongUploadDialog />}
+                {!searchQuery && session && <SongUploadDialog />}
               </div>
             )}
           </motion.div>

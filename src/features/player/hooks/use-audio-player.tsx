@@ -1,20 +1,20 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Song } from "~/domain/song/schema";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 interface AudioPlayerContextType {
   // Current song
   currentSong: Song | null;
   isPlaying: boolean;
-  
+
   // Playback state
   currentTime: number;
   duration: number;
   volume: number;
   isMuted: boolean;
   isLoading: boolean;
-  
+
   // Controls
   play: (song: Song) => void;
   pause: () => void;
@@ -23,11 +23,11 @@ interface AudioPlayerContextType {
   seek: (time: number) => void;
   setVolume: (volume: number) => void;
   toggleMute: () => void;
-  
+
   // Navigation
   playNext: () => void;
   playPrevious: () => void;
-  
+
   // Queue
   queue: Song[];
   addToQueue: (song: Song) => void;
@@ -37,7 +37,11 @@ interface AudioPlayerContextType {
 
 const AudioPlayerContext = createContext<AudioPlayerContextType | null>(null);
 
-export function AudioPlayerProvider({ children }: { children: React.ReactNode }) {
+export function AudioPlayerProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -121,7 +125,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
     if (!audioRef.current) {
       return;
     }
-    
+
     // If it's the same song, just resume
     if (currentSong?.id === song.id && audioRef.current.paused) {
       void audioRef.current.play().catch(() => {
@@ -129,7 +133,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
       });
       return;
     }
-    
+
     // Load and play new song
     setCurrentSong(song);
     audioRef.current.src = song.audioUrl;
@@ -196,11 +200,11 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
   };
 
   const addToQueue = (song: Song) => {
-    setQueue(prev => [...prev, song]);
+    setQueue((prev) => [...prev, song]);
   };
 
   const removeFromQueue = (songId: string) => {
-    setQueue(queue.filter(s => s.id !== songId));
+    setQueue(queue.filter((s) => s.id !== songId));
   };
 
   const clearQueue = () => {
