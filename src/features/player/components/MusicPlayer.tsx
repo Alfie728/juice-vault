@@ -84,11 +84,11 @@ export function MusicPlayer() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-4">
-        <div className="flex h-20 items-center gap-4">
+      <div className="container mx-auto px-2 sm:px-4">
+        <div className="flex h-16 sm:h-20 items-center gap-2 sm:gap-4">
           {/* Song Info */}
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            <div className="relative h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0 overflow-hidden rounded">
               {currentSong.coverArtUrl && !imageError ? (
                 <Image
                   src={currentSong.coverArtUrl}
@@ -105,7 +105,7 @@ export function MusicPlayer() {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{currentSong.title}</p>
+              <p className="truncate text-xs sm:text-sm font-medium">{currentSong.title}</p>
               <p className="truncate text-xs text-muted-foreground">
                 {currentSong.artist}
               </p>
@@ -113,7 +113,7 @@ export function MusicPlayer() {
           </div>
 
           {/* Playback Controls */}
-          <div className="flex flex-col items-center gap-1">
+          <div className="hidden sm:flex flex-col items-center gap-1">
             <div className="flex items-center gap-1">
               <Button
                 size="icon"
@@ -147,7 +147,7 @@ export function MusicPlayer() {
             </div>
 
             {/* Progress Bar */}
-            <div className="flex w-96 items-center gap-2">
+            <div className="flex w-48 sm:w-64 md:w-80 lg:w-96 items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 {formatTime(currentTime)}
               </span>
@@ -164,10 +164,43 @@ export function MusicPlayer() {
             </div>
           </div>
 
+          {/* Mobile Playback Controls */}
+          <div className="flex sm:hidden items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={playPrevious}
+            >
+              <SkipBack className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={togglePlayPause}
+              disabled={isLoading}
+            >
+              {isPlaying ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4 ml-0.5" />
+              )}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={playNext}
+              disabled={queue.length === 0}
+            >
+              <SkipForward className="h-4 w-4" />
+            </Button>
+          </div>
+
           {/* Volume & Queue */}
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
             {/* Volume Control */}
-            <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-2">
               <Button
                 size="icon"
                 variant="ghost"

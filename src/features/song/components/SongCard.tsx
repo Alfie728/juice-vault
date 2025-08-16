@@ -72,21 +72,33 @@ export function SongCard({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const formatCompactPlays = (count: number) => {
+    if (count >= 1000000) {
+      return `${(count / 1000000).toFixed(1)}M plays`;
+    }
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}K plays`;
+    }
+    return `${count} plays`;
+  };
+
   return (
-    <div className="group bg-card relative rounded-lg border p-4 transition-all hover:shadow-lg">
-      <div className="flex gap-4">
+    <div className="group bg-card relative rounded-lg border p-4 sm:p-5 transition-all hover:shadow-lg hover:border-purple-600/50 w-full">
+      <div className="flex gap-4 sm:gap-5">
         {/* Album Art */}
-        <div className="bg-muted relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-md">
+        <div className="bg-muted relative h-20 w-20 sm:h-24 sm:w-24 flex-shrink-0 overflow-hidden rounded-md">
           {song.coverArtUrl && !imageError ? (
             <Image
               src={song.coverArtUrl}
               alt={song.title}
-              className="h-full w-full object-cover"
+              width={96}
+              height={96}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
               onError={() => setImageError(true)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <Music className="text-muted-foreground h-8 w-8" />
+              <Music className="text-muted-foreground h-8 w-8 sm:h-10 sm:w-10" />
             </div>
           )}
 
@@ -95,32 +107,37 @@ export function SongCard({
             <Button
               size="icon"
               variant="ghost"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 h-10 w-10 rounded-full"
+              className="bg-purple-600 text-white hover:bg-purple-700 h-10 w-10 sm:h-12 sm:w-12 rounded-full transition-transform hover:scale-110"
               onClick={handlePlayPause}
             >
               {isPlaying ? (
-                <Pause className="h-5 w-5" />
+                <Pause className="h-5 w-5 sm:h-6 sm:w-6 fill-white" />
               ) : (
-                <Play className="ml-0.5 h-5 w-5" />
+                <Play className="ml-0.5 h-5 w-5 sm:h-6 sm:w-6 fill-white" />
               )}
             </Button>
           </div>
         </div>
 
         {/* Song Info */}
-        <div className="flex flex-1 flex-col justify-center">
-          <h3 className="line-clamp-1 font-semibold">{song.title}</h3>
-          <p className="text-muted-foreground text-sm">{song.artist}</p>
-          <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+        <div className="flex flex-1 flex-col justify-center min-w-0">
+          <h3 className="line-clamp-1 text-base sm:text-lg font-semibold text-white">{song.title}</h3>
+          <p className="text-muted-foreground text-sm sm:text-base mb-1">{song.artist}</p>
+          <div className="text-muted-foreground flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm">
             {song.duration && <span>{formatDuration(song.duration)}</span>}
             {song.isUnreleased && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-bold">
+                UNRELEASED
+              </span>
+            )}
+            {song.duration && (
               <>
                 <span>•</span>
-                <span className="text-orange-500">Unreleased</span>
+                <span>{song.duration && formatDuration(song.duration)}</span>
               </>
             )}
             <span>•</span>
-            <span>{song.playCount} plays</span>
+            <span>{formatCompactPlays(song.playCount)}</span>
           </div>
         </div>
 
@@ -131,17 +148,17 @@ export function SongCard({
             variant="ghost"
             onClick={onLike}
             className={cn(
-              "h-8 w-8",
+              "h-9 w-9",
               isLiked && "text-red-500 hover:text-red-600"
             )}
           >
-            <Heart className={cn("h-4 w-4", isLiked && "fill-current")} />
+            <Heart className={cn("h-5 w-5", isLiked && "fill-current")} />
           </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-8 w-8">
-                <MoreVertical className="h-4 w-4" />
+              <Button size="icon" variant="ghost" className="h-9 w-9">
+                <MoreVertical className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">

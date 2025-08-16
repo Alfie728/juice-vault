@@ -19,7 +19,7 @@ export function AnimatedTitle({
       transition={{ duration: 0.5 }}
       className={className}
     >
-      <h1 className="animate-pulse-slow bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent">
+      <h1 className="bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent">
         {children}
       </h1>
     </motion.div>
