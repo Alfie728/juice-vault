@@ -9,6 +9,198 @@ import { SongService } from "~/domain/song/service";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const songRouter = createTRPCRouter({
+  // Upload endpoint that handles file upload, DB creation, and cleanup
+  upload: protectedProcedure
+    .input(
+      z.object({
+        // Song metadata
+        title: z.string().min(1),
+        artist: z.string().default("Juice WRLD"),
+        duration: z.number().optional(),
+        releaseDate: z.date().optional(),
+        isUnreleased: z.boolean().default(true),
+
+        // File upload data
+        audioFile: z.object({
+          fileName: z.string(),
+          contentType: z.string().default("audio/mpeg"),
+        }),
+        coverFile: z
+          .object({
+            fileName: z.string(),
+            contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+          })
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const program = Effect.gen(function* () {
+        const songService = yield* SongService;
+        const s3Service = yield* S3Service;
+
+        // Generate unique keys for files
+        const timestamp = Date.now();
+        const sanitizeFileName = (fileName: string) =>
+          fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+
+        const audioKey = `audio/${ctx.session.user.id}/${timestamp}-${sanitizeFileName(input.audioFile.fileName)}`;
+        const coverKey = input.coverFile
+          ? `covers/${ctx.session.user.id}/${timestamp}-${sanitizeFileName(input.coverFile.fileName)}`
+          : null;
+
+        // Generate presigned URLs for upload
+        const audioUploadResult = yield* s3Service.getPresignedUploadUrl(
+          audioKey,
+          input.audioFile.contentType,
+          3600 // 1 hour expiry
+        );
+
+        const coverUploadResult =
+          coverKey && input.coverFile
+            ? yield* s3Service.getPresignedUploadUrl(
+                coverKey,
+                input.coverFile.contentType,
+                3600
+              )
+            : null;
+
+        // Get public URLs
+        const audioPublicUrl = yield* s3Service.getPublicUrl(audioKey);
+        const coverPublicUrl = coverKey
+          ? yield* s3Service.getPublicUrl(coverKey)
+          : null;
+
+        // Prepare the response with upload URLs
+        const uploadUrls = {
+          audio: {
+            uploadUrl: audioUploadResult.url,
+            key: audioKey,
+            publicUrl: audioPublicUrl,
+          },
+          cover:
+            coverUploadResult && coverPublicUrl
+              ? {
+                  uploadUrl: coverUploadResult.url,
+                  key: coverKey,
+                  publicUrl: coverPublicUrl,
+                }
+              : null,
+        };
+
+        // Create song in database (will be called after successful upload)
+        const songData = {
+          title: input.title,
+          artist: input.artist,
+          duration: input.duration,
+          releaseDate: input.releaseDate,
+          isUnreleased: input.isUnreleased,
+          audioUrl: audioPublicUrl,
+          coverArtUrl: coverPublicUrl,
+          uploadedBy: { id: ctx.session.user.id },
+        };
+
+        return {
+          uploadUrls,
+          songData, // This will be used to create the song after upload
+        };
+      }).pipe(
+        Effect.catchTags({
+          S3Error: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: error.message,
+              })
+            ),
+        })
+      );
+
+      return ctx.runtime.runPromise(program);
+    }),
+
+  // Complete upload - call this after files are uploaded to S3
+  completeUpload: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().min(1),
+        artist: z.string().default("Juice WRLD"),
+        audioUrl: z.string().url(),
+        duration: z.number().optional(),
+        coverArtUrl: z.string().url().optional(),
+        releaseDate: z.date().optional(),
+        isUnreleased: z.boolean().default(true),
+
+        // Keys for cleanup if needed
+        audioKey: z.string(),
+        coverKey: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const program = Effect.gen(function* () {
+        const songService = yield* SongService;
+        const s3Service = yield* S3Service;
+
+        // Create song with automatic cleanup on failure
+        const createSongWithCleanup = songService
+          .createSong({
+            title: input.title,
+            artist: input.artist,
+            audioUrl: input.audioUrl,
+            duration: input.duration,
+            coverArtUrl: input.coverArtUrl,
+            releaseDate: input.releaseDate,
+            isUnreleased: input.isUnreleased,
+            uploadedBy: { id: ctx.session.user.id },
+          })
+          .pipe(
+            Effect.onError(() => {
+              // Cleanup S3 files if database creation fails
+              const cleanupEffects = [];
+
+              cleanupEffects.push(
+                s3Service
+                  .delete(input.audioKey)
+                  .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+              );
+
+              if (input.coverKey) {
+                cleanupEffects.push(
+                  s3Service
+                    .delete(input.coverKey)
+                    .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+                );
+              }
+
+              // Run cleanup in parallel
+              return Effect.all(cleanupEffects, {
+                concurrency: "unbounded",
+              }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            })
+          );
+
+        return yield* createSongWithCleanup;
+      }).pipe(
+        Effect.catchTags({
+          ValidationError: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: error.message,
+              })
+            ),
+          DatabaseError: (error) =>
+            Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: error.message,
+              })
+            ),
+        })
+      );
+
+      return ctx.runtime.runPromise(program);
+    }),
+
   create: protectedProcedure
     .input(
       z.object({

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Song } from "~/domain/song/schema";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,7 +31,7 @@ import {
 } from "~/features/shared/components/ui/form";
 import { Input } from "~/features/shared/components/ui/input";
 import { Progress } from "~/features/shared/components/ui/progress";
-import { useS3Upload } from "~/features/shared/hooks/use-s3-upload";
+import { useSongUpload } from "~/features/shared/hooks/use-song-upload";
 import { useTRPC } from "~/trpc/react";
 
 const uploadSchema = z.object({
@@ -54,8 +55,7 @@ export function AdvancedSongUploadDialog() {
 
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { uploadAudio, uploadCover, isUploading, uploadProgress } =
-    useS3Upload();
+  const { uploadSong, isUploading, uploadProgress } = useSongUpload();
 
   const form = useForm<UploadFormData>({
     resolver: zodResolver(uploadSchema),
@@ -67,44 +67,32 @@ export function AdvancedSongUploadDialog() {
     },
   });
 
-  const createSong = useMutation(
-    trpc.song.create.mutationOptions({
-      onSuccess: async (song) => {
-        toast.success("Song created successfully!");
+  // We'll handle lyrics generation after successful upload
+  const handleUploadSuccess = async (song: Song) => {
+    if (form.getValues("generateLyrics")) {
+      // Trigger lyrics generation in background
+      await generateLyrics.mutateAsync({
+        songId: song.id,
+        audioUrl: song.audioUrl,
+        songTitle: song.title,
+        artist: song.artist,
+        duration: song.duration ?? undefined,
+      });
+    }
 
-        if (form.getValues("generateLyrics")) {
-          // Trigger lyrics generation in background
-          await generateLyrics.mutateAsync({
-            songId: song.id,
-            audioUrl: song.audioUrl,
-            songTitle: song.title,
-            artist: song.artist,
-            duration: song.duration ?? undefined,
-          });
-        }
+    // Invalidate queries
+    await queryClient.invalidateQueries({
+      queryKey: trpc.song.list.queryOptions().queryKey,
+    });
 
-        // Invalidate queries
-        await queryClient.invalidateQueries({
-          queryKey: trpc.song.list.queryOptions().queryKey,
-        });
-
-        // Reset form and close dialog
-        setOpen(false);
-        form.reset();
-        setAudioFile(null);
-        setCoverFile(null);
-        setAudioPreview(null);
-        setCoverPreview(null);
-      },
-      onError: (error) => {
-        if (error instanceof Error) {
-          toast.error(error.message);
-        } else {
-          toast.error("Failed to create song");
-        }
-      },
-    })
-  );
+    // Reset form and close dialog
+    setOpen(false);
+    form.reset();
+    setAudioFile(null);
+    setCoverFile(null);
+    setAudioPreview(null);
+    setCoverPreview(null);
+  };
 
   const generateLyrics = useMutation(
     trpc.lyrics.generateLyrics.mutationOptions({
@@ -151,25 +139,20 @@ export function AdvancedSongUploadDialog() {
         return;
       }
 
-      // Upload audio file to S3
-      const audioResult = await uploadAudio(audioFile);
-
-      // Upload cover art if provided
-      let coverUrl: string | undefined;
-      if (coverFile) {
-        const coverResult = await uploadCover(coverFile);
-        coverUrl = coverResult.publicUrl;
-      }
-
-      // Create song record in database
-      await createSong.mutateAsync({
-        title: data.title,
-        artist: data.artist,
-        audioUrl: audioResult.publicUrl,
-        coverArtUrl: coverUrl,
-        duration: data.duration,
-        isUnreleased: data.isUnreleased,
+      // Upload song using the consolidated upload flow
+      const song = await uploadSong({
+        audioFile,
+        coverFile: coverFile ?? undefined,
+        metadata: {
+          title: data.title,
+          artist: data.artist,
+          duration: data.duration,
+          isUnreleased: data.isUnreleased,
+        },
       });
+
+      // Handle success (lyrics generation, etc.)
+      await handleUploadSuccess(song);
     } catch (error) {
       console.error("Upload error:", error);
     }
@@ -377,15 +360,12 @@ export function AdvancedSongUploadDialog() {
                 type="button"
                 variant="outline"
                 onClick={() => setOpen(false)}
-                disabled={isUploading || createSong.isPending}
+                disabled={isUploading}
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={isUploading || createSong.isPending || !audioFile}
-              >
-                {(isUploading || createSong.isPending) && (
+              <Button type="submit" disabled={isUploading || !audioFile}>
+                {isUploading && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 {isUploading ? "Uploading..." : "Create Song"}
