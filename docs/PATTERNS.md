@@ -533,6 +533,351 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 });
 ```
 
+## Advanced Effect Patterns
+
+### Program Separation Pattern
+
+For complex operations involving AI services, separate concerns into focused programs to isolate error types and improve maintainability.
+
+**Core Principle: Business Logic in Programs, Instrumentation in Pipes**
+
+Always follow this pattern:
+1. **Write pure business logic** inside `Effect.gen` programs
+2. **Add instrumentation** (retry, error handling, spans) via `.pipe()`
+3. **Keep programs focused** on a single responsibility
+
+```typescript
+// src/server/api/routers/lyrics.ts - Business Logic & Instrumentation Separation
+
+export const lyricsRouter = createTRPCRouter({
+  generateLyrics: protectedProcedure
+    .input(GenerateLyricsInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      
+      // ✅ CORRECT: Business logic in program generator
+      const transcribeAudioProgram = Effect.gen(function* () {
+        // Pure business logic - what the program does
+        const lyricsAI = yield* LyricsAIService;
+        const httpClient = yield* HttpClient.HttpClient;
+
+        // Fetch audio using Effect's HTTP client
+        const response = yield* httpClient.get(input.audioUrl);
+        const audioArrayBuffer = yield* response.arrayBuffer;
+        const audioBuffer = Buffer.from(audioArrayBuffer);
+
+        // Generate lyrics with AI transcription
+        return yield* lyricsAI.generateLyrics({
+          audioUrl: audioBuffer,
+          songTitle: input.songTitle,
+          artist: input.artist,
+          duration: input.duration,
+        });
+        
+        // ⚠️ NO retry logic here - that's instrumentation!
+        // ⚠️ NO error handling here - that's instrumentation!
+        // ⚠️ NO spans here - that's instrumentation!
+        
+      }).pipe(
+        // ✅ INSTRUMENTATION: How the program behaves
+        
+        // Retry strategy
+        Effect.retry({
+          schedule: Schedule.exponential("1 second"),
+          until: (error) => error._tag !== "AiError",
+        }),
+        
+        // Error handling policy
+        Effect.catchTags({
+          ValidationError: (error) => Effect.fail(
+            new TRPCError({ code: "BAD_REQUEST", message: `Validation error: ${error.message}` })
+          ),
+          RequestError: (error) => Effect.fail(
+            new TRPCError({ code: "BAD_REQUEST", message: `Failed to fetch audio: ${error.message}` })
+          ),
+          ResponseError: (error) => Effect.fail(
+            new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Network error: ${error.message}` })
+          ),
+          AiError: (error) => Effect.fail(
+            new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `AI error: ${error.message}` })
+          ),
+        }),
+        
+        // Observability
+        Effect.withSpan("lyrics.generate_with_retry", {
+          attributes: {
+            "lyrics.song_title": input.songTitle,
+            "lyrics.artist": input.artist,
+            "lyrics.duration": input.duration ?? 0,
+            "lyrics.retry_max_attempts": 5,
+            "lyrics.retry_schedule": "exponential_1s",
+          },
+        })
+      );
+
+      // ✅ CORRECT: Main program with pure business logic
+      const generateLyricsProgram = Effect.gen(function* () {
+        // Pure business logic - what the program does
+        const lyricsService = yield* LyricsService;
+
+        // Check if lyrics already exist
+        const existingLyrics = yield* lyricsService
+          .getLyricsBySongId(input.songId)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+        if (existingLyrics) {
+          return {
+            success: true,
+            message: "Lyrics already exist",
+            songId: input.songId,
+            lyricsId: existingLyrics.id,
+          };
+        }
+
+        // Get transcribed text from AI program
+        const transcribedText = yield* transcribeAudioProgram;
+
+        // Save to database
+        const lyrics = yield* lyricsService.createLyrics({
+          songId: input.songId,
+          fullText: transcribedText,
+          isGenerated: true,
+        });
+
+        return {
+          success: true,
+          message: "Lyrics generated successfully",
+          songId: input.songId,
+          lyricsId: lyrics.id,
+        };
+        
+        // ⚠️ NO spans here - that's instrumentation!
+        // ⚠️ NO catchTags here - that's instrumentation!
+        
+      }).pipe(
+        // ✅ INSTRUMENTATION: How the program behaves
+        
+        // Observability
+        Effect.withSpan("lyrics.generateLyrics", {
+          attributes: {
+            "operation.type": "generate_lyrics",
+            "song.id": input.songId,
+            "song.title": input.songTitle,
+          },
+        }),
+        
+        // Error handling policy
+        Effect.catchTags({
+          DatabaseError: (error) => Effect.fail(
+            new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message })
+          ),
+          ValidationError: (error) => Effect.fail(
+            new TRPCError({ code: "BAD_REQUEST", message: error.message })
+          ),
+        })
+      );
+
+      return ctx.runtime.runPromise(generateLyricsProgram);
+    }),
+});
+```
+
+**Key Principles of Business Logic & Instrumentation Separation:**
+
+### ✅ DO: Business Logic in Program Generators
+```typescript
+const myProgram = Effect.gen(function* () {
+  // ✅ Pure business logic - what the program does
+  const service = yield* MyService;
+  const data = yield* service.fetchData();
+  const processed = yield* service.processData(data);
+  return processed;
+}).pipe(
+  // ✅ Instrumentation - how the program behaves
+  Effect.retry(retryPolicy),
+  Effect.catchTags(errorHandlers),
+  Effect.withSpan("operation.name")
+);
+```
+
+### ❌ DON'T: Mix Business Logic with Instrumentation
+```typescript
+const badProgram = Effect.gen(function* () {
+  // ❌ Business logic mixed with instrumentation
+  const service = yield* MyService;
+  const data = yield* Effect.withSpan(
+    service.fetchData().pipe(
+      Effect.retry(somePolicy),
+      Effect.catchTag("Error", handleError)
+    ),
+    "fetch.span"
+  );
+  return data;
+});
+```
+
+**Key Benefits of This Separation:**
+- ✅ **Clarity**: Business logic is pure and easy to understand
+- ✅ **Testability**: Can test business logic without instrumentation
+- ✅ **Maintainability**: Change retry/error policies without touching business logic
+- ✅ **Composability**: Reuse business logic with different instrumentation
+- ✅ **Error Isolation**: AiErrors contained within AI programs
+- ✅ **Type Safety**: Only relevant error types reach each catchTags
+
+### Common Anti-Patterns to Avoid
+
+```typescript
+// ❌ BAD: Instrumentation mixed into business logic
+const badPattern = Effect.gen(function* () {
+  const service = yield* MyService;
+  
+  // ❌ Spans mixed with business logic
+  const data = yield* Effect.withSpan(
+    service.getData(),
+    "get.data"
+  );
+  
+  // ❌ Retry mixed with business logic
+  const processed = yield* service.processData(data).pipe(
+    Effect.retry(Schedule.exponential("1 second"))
+  );
+  
+  // ❌ Error handling mixed with business logic
+  const saved = yield* service.saveData(processed).pipe(
+    Effect.catchTag("DatabaseError", (error) => 
+      Effect.succeed({ error: error.message })
+    )
+  );
+  
+  return saved;
+});
+
+// ✅ GOOD: Pure business logic, instrumentation in pipe
+const goodPattern = Effect.gen(function* () {
+  const service = yield* MyService;
+  
+  // ✅ Pure business logic only
+  const data = yield* service.getData();
+  const processed = yield* service.processData(data);
+  const saved = yield* service.saveData(processed);
+  
+  return saved;
+}).pipe(
+  // ✅ All instrumentation separated
+  Effect.retry(Schedule.exponential("1 second")),
+  Effect.catchTags({
+    DatabaseError: (error) => Effect.succeed({ error: error.message }),
+    ValidationError: (error) => Effect.fail(new TRPCError({ ... })),
+  }),
+  Effect.withSpan("complete.operation", { attributes: { ... } })
+);
+```
+
+### Retry Patterns with Effect
+
+```typescript
+// Selective retry - only retry specific error types
+Effect.retry({
+  schedule: Schedule.exponential("1 second"), // Exponential backoff
+  until: (error) => {
+    // Only retry AiErrors, fail fast on other errors
+    return error._tag !== "AiError";
+  },
+})
+
+// Alternative: Retry with maximum attempts
+Effect.retry({
+  schedule: Schedule.exponential("1 second").pipe(
+    Schedule.intersect(Schedule.recurs(5)) // Max 5 retries
+  ),
+  until: (error) => error._tag !== "AiError",
+})
+
+// Conditional retry with complex logic
+Effect.retry({
+  schedule: Schedule.exponential("1 second"),
+  until: (error) => {
+    // Custom retry logic based on error type and properties
+    if (error._tag === "AiError") return false; // Retry AiErrors
+    if (error._tag === "RateLimitError") return false; // Retry rate limits
+    return true; // Don't retry other errors
+  },
+})
+```
+
+### Observability Patterns
+
+```typescript
+// Comprehensive span attributes for business context
+Effect.withSpan("operation.name", {
+  attributes: {
+    // Business context
+    "song.id": songId,
+    "song.title": songTitle,
+    "user.id": userId,
+    
+    // Operation metadata
+    "operation.type": "ai_transcription",
+    "operation.input_size": audioBuffer.length,
+    
+    // Retry configuration
+    "retry.max_attempts": 5,
+    "retry.schedule": "exponential_1s",
+    "retry.condition": "AiError_only",
+    
+    // Performance metrics
+    "audio.duration_seconds": duration,
+    "audio.format": "mp3",
+  },
+})
+
+// Nested spans for granular tracing
+Effect.gen(function* () {
+  const result = yield* Effect.withSpan(
+    performComplexOperation(),
+    "operation.sub_task",
+    { attributes: { "task.step": "preprocessing" } }
+  );
+  
+  const finalResult = yield* Effect.withSpan(
+    processResult(result),
+    "operation.sub_task",
+    { attributes: { "task.step": "postprocessing" } }
+  );
+  
+  return finalResult;
+}).pipe(
+  Effect.withSpan("operation.main", {
+    attributes: { "operation.complexity": "high" }
+  })
+);
+```
+
+### HTTP Client Integration
+
+```typescript
+// Using Effect's HTTP client for better integration
+Effect.gen(function* () {
+  const httpClient = yield* HttpClient.HttpClient;
+  
+  // Fetch binary data (audio files)
+  const response = yield* httpClient.get(audioUrl);
+  const arrayBuffer = yield* response.arrayBuffer;
+  const buffer = Buffer.from(arrayBuffer);
+  
+  // HTTP client automatically handles:
+  // - Connection pooling
+  // - Timeout management
+  // - Error mapping to Effect error types
+  
+  return buffer;
+}).pipe(
+  Effect.catchTags({
+    RequestError: (error) => handleRequestError(error),
+    ResponseError: (error) => handleResponseError(error),
+  })
+);
+```
+
 ## Error Handling Patterns
 
 ### Backend Errors with Effect
