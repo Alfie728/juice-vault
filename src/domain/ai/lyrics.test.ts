@@ -11,12 +11,13 @@
  * then lyrics will be synced with timestamps using GPT-4.
  */
 
-import * as fs from "fs";
 import * as path from "path";
 import { argv } from "process";
 // Run the test if this file is executed directly
 import { fileURLToPath } from "url";
 import { NodeSdk } from "@effect/opentelemetry";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { config } from "dotenv";
@@ -34,7 +35,7 @@ const NodeSdkLive = NodeSdk.layer(() => ({
   },
   spanProcessor: new BatchSpanProcessor(
     new OTLPTraceExporter({
-      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT 
+      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT
         ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`
         : "http://localhost:4318/v1/traces",
     })
@@ -44,6 +45,7 @@ const NodeSdkLive = NodeSdk.layer(() => ({
 // Test workflow
 const testGenerateLyrics = Effect.gen(function* () {
   const lyricsService = yield* LyricsAIService;
+  const fs = yield* FileSystem.FileSystem;
 
   // Read the local audio file
   const audioFilePath = path.resolve(
@@ -53,16 +55,20 @@ const testGenerateLyrics = Effect.gen(function* () {
   console.log("Starting lyrics generation test...");
   console.log("Audio file:", audioFilePath);
 
-  // Check if file exists
-  if (!fs.existsSync(audioFilePath)) {
+  // Check if file exists using Effect's FileSystem
+  const exists = yield* fs.exists(audioFilePath);
+  if (!exists) {
     console.error("❌ Audio file not found:", audioFilePath);
     return { success: false, error: "Audio file not found" };
   }
 
-  const audioBuffer = fs.readFileSync(audioFilePath);
+  // Read file using Effect's FileSystem
+  const audioUint8Array = yield* fs.readFile(audioFilePath);
+  // Convert Uint8Array to Buffer for compatibility with OpenAI SDK
+  const audioBuffer = Buffer.from(audioUint8Array);
   console.log(
     "File size:",
-    (audioBuffer.length / 1024 / 1024).toFixed(2),
+    (audioBuffer.byteLength / 1024 / 1024).toFixed(2),
     "MB"
   );
 
@@ -135,6 +141,7 @@ const runTest = async () => {
       },
     }),
     Effect.provide(LyricsAIService.Default),
+    Effect.provide(NodeFileSystem.layer),
     Effect.provide(NodeSdkLive)
   );
 
