@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Music2, Sparkles, TrendingUp, Upload } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -10,8 +10,8 @@ import { AnimatedTitle } from "~/features/shared/components/AnimatedTitle";
 import { LoadingSpinner } from "~/features/shared/components/LoadingSpinner";
 import { SearchBar } from "~/features/shared/components/SearchBar";
 import { Button } from "~/features/shared/components/ui/button";
+import { AdvancedSongUploadDialog } from "~/features/song/components/AdvancedSongUploadDialog";
 import { SongGrid } from "~/features/song/components/SongGrid";
-import { SongUploadDialog } from "~/features/song/components/SongUploadDialog";
 import { useTRPC } from "~/trpc/react";
 
 export function JuiceVaultContent() {
@@ -23,13 +23,12 @@ export function JuiceVaultContent() {
   const { data: songs, isLoading } = useQuery(trpc.song.list.queryOptions());
 
   const searchResults = useQuery({
-    ...trpc.song.search.queryOptions({ query: searchQuery, type: "hybrid" }),
+    ...trpc.song.search.queryOptions({ query: searchQuery, type: "text" }), // Changed to text search only
     enabled: searchQuery.length > 2,
   });
 
   // Cast search results to match list format for type compatibility
-  const displaySongs =
-    searchQuery.length > 2 ? (searchResults.data as typeof songs) : songs;
+  const displaySongs = searchQuery.length > 2 ? searchResults.data : songs;
   const isSearching =
     searchQuery.length > 2 ? searchResults.isLoading : isLoading;
 
@@ -56,7 +55,7 @@ export function JuiceVaultContent() {
 
             {/* Action Buttons */}
             <div className="mb-8 flex justify-center gap-4">
-              <SongUploadDialog />
+              <AdvancedSongUploadDialog />
               <Button
                 variant="outline"
                 className="gap-2 border-zinc-700 text-black hover:border-purple-600"
@@ -149,7 +148,7 @@ export function JuiceVaultContent() {
                     ? "No songs found"
                     : "No songs yet. Be the first to upload!"}
                 </p>
-                {!searchQuery && session && <SongUploadDialog />}
+                {!searchQuery && session && <AdvancedSongUploadDialog />}
               </div>
             )}
           </motion.div>

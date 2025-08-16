@@ -15,14 +15,18 @@
  */
 import { Layer, ManagedRuntime } from "effect";
 
-import { EmbeddingsService } from "~/domain/ai/embeddings-service";
+// import { EmbeddingsService } from "~/domain/ai/embeddings-service";
+import { S3Service } from "~/domain/infra/s3-service";
 import { LyricsService } from "~/domain/lyrics/service";
+import { SongService } from "~/domain/song/service";
 import { PrismaClientService } from "~/lib/prisma";
 
 const MainLayer = Layer.mergeAll(
   PrismaClientService.Default,
-  EmbeddingsService.Default,
-  LyricsService.Default
+  // EmbeddingsService.Default, // Commented out - no Upstash Vector config needed
+  LyricsService.Default,
+  S3Service.Default,
+  SongService.Default
 );
 
 export const ServiceRuntime = ManagedRuntime.make(MainLayer);

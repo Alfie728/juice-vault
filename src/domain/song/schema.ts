@@ -4,14 +4,14 @@ export const Song = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   artist: Schema.String,
-  duration: Schema.optional(Schema.Number),
+  duration: Schema.NullOr(Schema.Number),
   audioUrl: Schema.String,
-  coverArtUrl: Schema.optional(Schema.String),
-  releaseDate: Schema.optional(Schema.Date),
+  coverArtUrl: Schema.NullOr(Schema.String),
+  releaseDate: Schema.NullOr(Schema.DateFromSelf),
   isUnreleased: Schema.Boolean,
   playCount: Schema.Number,
-  createdAt: Schema.Date,
-  updatedAt: Schema.Date,
+  createdAt: Schema.DateFromSelf,
+  updatedAt: Schema.DateFromSelf,
   uploadedById: Schema.String,
 });
 
@@ -21,9 +21,9 @@ export const SongWithUser = Schema.Struct({
   ...Song.fields,
   uploadedBy: Schema.Struct({
     id: Schema.String,
-    name: Schema.optional(Schema.String),
-    email: Schema.optional(Schema.String),
-    image: Schema.optional(Schema.String),
+    name: Schema.NullOr(Schema.String),
+    email: Schema.NullOr(Schema.String),
+    image: Schema.NullOr(Schema.String),
   }),
 });
 
@@ -31,7 +31,7 @@ export type SongWithUser = Schema.Schema.Type<typeof SongWithUser>;
 
 export const SongWithLyrics = Schema.Struct({
   ...Song.fields,
-  lyrics: Schema.optional(Schema.Struct({
+  lyrics: Schema.NullOr(Schema.Struct({
     id: Schema.String,
     fullText: Schema.String,
     isGenerated: Schema.Boolean,
@@ -40,7 +40,7 @@ export const SongWithLyrics = Schema.Struct({
       id: Schema.String,
       text: Schema.String,
       startTime: Schema.Number,
-      endTime: Schema.optional(Schema.Number),
+      endTime: Schema.NullOr(Schema.Number),
       orderIndex: Schema.Number,
     })),
   })),
