@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { redirect } from "next/navigation";
 
 import { AnimatedTitle } from "~/features/shared/components/AnimatedTitle";
 import { LoadingSpinner } from "~/features/shared/components/LoadingSpinner";
@@ -27,7 +28,7 @@ import { SongUploadDialog } from "~/features/song/components/SongUploadDialog";
 import { useTRPC } from "~/trpc/react";
 
 export function JuiceVaultContent() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const trpc = useTRPC();
@@ -38,6 +39,20 @@ export function JuiceVaultContent() {
     ...trpc.song.search.queryOptions({ query: searchQuery, type: "text" }), // Changed to text search only
     enabled: searchQuery.length > 2,
   });
+
+  // Loading state
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (status === "unauthenticated") {
+    redirect("/login");
+  }
 
   // Cast search results to match list format for type compatibility
   const displaySongs = searchQuery.length > 2 ? searchResults.data : songs;

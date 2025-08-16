@@ -34,7 +34,9 @@ const NodeSdkLive = NodeSdk.layer(() => ({
   },
   spanProcessor: new BatchSpanProcessor(
     new OTLPTraceExporter({
-      url: "http://localhost:4318/v1/traces",
+      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT 
+        ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`
+        : "http://localhost:4318/v1/traces",
     })
   ),
 }));

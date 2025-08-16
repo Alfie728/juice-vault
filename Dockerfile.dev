@@ -1,0 +1,29 @@
+# Development Dockerfile with hot reloading
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Install dependencies for better compatibility
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+COPY prisma ./prisma/
+
+# Install dependencies
+RUN pnpm install
+
+# Copy application code
+COPY . .
+
+# Generate Prisma client
+RUN pnpm prisma generate
+
+# Expose ports
+EXPOSE 3000
+
+# Start development server
+CMD ["pnpm", "dev"]

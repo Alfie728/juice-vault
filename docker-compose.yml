@@ -1,22 +1,102 @@
-version: '3.8'
-
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: juice-vault-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: juicevault
+      POSTGRES_PASSWORD: juicevault_password
+      POSTGRES_DB: juicevault
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U juicevault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - juice-vault-network
+
+  # Next.js Application (Development)
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: juice-vault-app
+    ports:
+      - "3000:3000"
+    environment:
+      # Database
+      DATABASE_URL: "postgresql://juicevault:juicevault_password@postgres:5432/juicevault?schema=public"
+      
+      # Auth (you should change these in production)
+      AUTH_SECRET: "development-secret-change-in-production"
+      AUTH_URL: "http://localhost:3000"
+      
+      # OAuth (optional - add your own)
+      AUTH_DISCORD_ID: "${AUTH_DISCORD_ID:-}"
+      AUTH_DISCORD_SECRET: "${AUTH_DISCORD_SECRET:-}"
+      AUTH_GOOGLE_ID: "${AUTH_GOOGLE_ID:-}"
+      AUTH_GOOGLE_SECRET: "${AUTH_GOOGLE_SECRET:-}"
+      
+      # AWS S3 (for audio storage)
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      
+      # OpenAI (for lyrics transcription)
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      
+      # OpenTelemetry
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-lgtm:4318"
+      OTEL_SERVICE_NAME: "juice-vault-app"
+      
+      # Next.js
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      NODE_ENV: "development"
+    volumes:
+      # Mount source code for hot reloading
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./prisma:/app/prisma
+      - ./.env:/app/.env
+      # Prevent node_modules from being overwritten
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-lgtm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - juice-vault-network
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Pushing database schema...' &&
+        pnpm prisma db push &&
+        echo 'Starting development server...' &&
+        pnpm dev
+      "
+
   # Grafana LGTM Stack (Loki, Grafana, Tempo, Mimir/Prometheus)
-  # This provides complete observability for your application
   otel-lgtm:
     image: docker.io/grafana/otel-lgtm:latest
     container_name: juice-vault-otel
     ports:
-      # Grafana UI - Access dashboards and visualizations
+      # Grafana UI
       - "3001:3000"
-      # OpenTelemetry GRPC endpoint - For sending traces via GRPC
+      # OpenTelemetry GRPC endpoint
       - "4317:4317"
-      # OpenTelemetry HTTP endpoint - For sending traces via HTTP
+      # OpenTelemetry HTTP endpoint
       - "4318:4318"
-      # Prometheus metrics endpoint (optional, uncomment if needed)
-      # - "9090:9090"
     environment:
-      # Configure OTLP receiver to accept traces
       - ENABLE_LOGS_GRAFANA=true
       - ENABLE_LOGS_LOKI=true
       - ENABLE_METRICS_GRAFANA=true
@@ -24,11 +104,8 @@ services:
       - ENABLE_TRACES_GRAFANA=true
       - ENABLE_TRACES_TEMPO=true
     volumes:
-      # Persist Grafana data
       - grafana-storage:/var/lib/grafana
-      # Persist Tempo data
       - tempo-storage:/var/lib/tempo
-      # Persist Prometheus data
       - prometheus-storage:/prometheus
     restart: unless-stopped
     healthcheck:
@@ -36,28 +113,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - juice-vault-network
 
-  # PostgreSQL Database (if you want to run it locally)
-  # Uncomment this section if you want to use local PostgreSQL instead of Neon
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: juice-vault-db
-  #   ports:
-  #     - "5432:5432"
-  #   environment:
-  #     POSTGRES_USER: juicevault
-  #     POSTGRES_PASSWORD: juicevault_password
-  #     POSTGRES_DB: juicevault
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U juicevault"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-
-  # MinIO for local S3-compatible storage (development only)
+  # MinIO for local S3-compatible storage (optional)
   # Uncomment if you want to test S3 functionality locally
   # minio:
   #   image: minio/minio:latest
@@ -77,20 +136,21 @@ services:
   #     interval: 30s
   #     timeout: 20s
   #     retries: 3
+  #   networks:
+  #     - juice-vault-network
 
 volumes:
+  postgres-data:
+    driver: local
   grafana-storage:
     driver: local
   tempo-storage:
     driver: local
   prometheus-storage:
     driver: local
-  # postgres-data:
-  #   driver: local
   # minio-data:
   #   driver: local
 
 networks:
-  default:
-    name: juice-vault-network
+  juice-vault-network:
     driver: bridge

@@ -13,7 +13,9 @@ const JaegerTracer = Layer.unwrapEffect(
   Effect.gen(function* () {
     // OTLP exporter for Jaeger (default endpoint)
     const otlpExporter = new OTLPTraceExporter({
-      url: "http://localhost:4318/v1/traces", // Jaeger OTLP endpoint
+      url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT 
+        ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`
+        : "http://localhost:4318/v1/traces", // Jaeger OTLP endpoint
       headers: {},
     });
     
