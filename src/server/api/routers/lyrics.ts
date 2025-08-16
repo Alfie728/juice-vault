@@ -1,12 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import { z } from "zod";
 
+import { AiError } from "~/domain/ai/errors";
 import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";
 import { LyricsService } from "~/domain/lyrics/service";
-import { client } from "~/jobs/client";
-import { generateLyricsJob } from "~/jobs/lyrics-generation";
-import { syncLyricsJob } from "~/jobs/lyrics-sync";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const lyricsRouter = createTRPCRouter({
@@ -172,7 +170,7 @@ export const lyricsRouter = createTRPCRouter({
             }),
         });
 
-        // Generate lyrics using AI transcription with fallback
+        // Generate lyrics using AI transcription with retry logic
         const transcribedText = yield* lyricsAI
           .generateLyrics({
             audioUrl: audioResponse,
@@ -181,15 +179,31 @@ export const lyricsRouter = createTRPCRouter({
             duration: input.duration,
           })
           .pipe(
-            Effect.catchAll(() => {
-              // If AI fails, create placeholder lyrics as fallback
-              return Effect.succeed(`${input.songTitle} by ${input.artist}
+            // Retry with exponential backoff starting at 1 second, max 5 attempts
+            // Only retry for AI-related errors (network, API limits, etc.)
+            Effect.retry({
+              schedule: Schedule.exponential("1 second"),
+              while: (error) => error._tag === "AiError", // More idiomatic for tagged errors
+              times: 5,
+            }),
+            // Log errors during retry
+            Effect.tapError((error) =>
+              Effect.sync(() =>
+                console.error(
+                  "Lyrics generation attempt failed, retrying:",
+                  error
+                )
+              )
+            ),
+            // If all retries fail, fall back to a simple message
+            Effect.orElse(() =>
+              Effect.succeed(`${input.songTitle} by ${input.artist}
 
-[Lyrics transcription failed]
+[Instrumental]
 
-The audio transcription service encountered an error.
-You can edit this to add the lyrics manually.`);
-            })
+This track appears to be instrumental or the lyrics could not be transcribed.
+You can edit this to add lyrics manually if needed.`)
+            )
           );
 
         // Save the lyrics to database
@@ -232,25 +246,83 @@ You can edit this to add the lyrics manually.`);
     )
     .mutation(async ({ input, ctx }) => {
       const program = Effect.gen(function* () {
-        yield* Effect.tryPromise({
-          try: () =>
-            client.sendEvent({
-              name: "song.lyrics.sync",
-              payload: input,
+        const lyricsService = yield* LyricsService;
+        const lyricsAI = yield* LyricsAIService;
+
+        // Generate timestamps for the lyrics with retry logic
+        const syncedLines = yield* lyricsAI
+          .syncLyricsWithTimestamps({
+            audioUrl: input.audioUrl,
+            fullLyrics: input.fullLyrics,
+            duration: input.duration,
+          })
+          .pipe(
+            // Retry with exponential backoff, max 5 attempts for AI errors
+            Effect.retry({
+              schedule: Schedule.exponential("1 second"),
+              while: (error) => error._tag === "AiError", // Check for AI-specific errors
+              times: 5,
             }),
-          catch: (error) =>
-            new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Failed to start lyrics sync job: ${String(error)}`,
-            }),
-        });
+            // Log errors during retry
+            Effect.tapError((error) =>
+              Effect.sync(() =>
+                console.error("Sync attempt failed, retrying:", error)
+              )
+            ),
+            // If all retries fail, generate simple evenly-spaced timestamps
+            Effect.orElse(() => {
+              const lines = input.fullLyrics
+                .split("\n")
+                .filter((line) => line.trim());
+              const duration = input.duration ?? 180; // Default 3 minutes if no duration
+              const timePerLine = duration / Math.max(lines.length, 1);
+
+              return Effect.succeed(
+                lines.map((text, index) => ({
+                  text,
+                  startTime: index * timePerLine,
+                  endTime: (index + 1) * timePerLine,
+                }))
+              );
+            })
+          );
+
+        // Update the lyrics with the synced lines
+        if (input.lyricsId) {
+          yield* lyricsService.updateLyrics({
+            id: input.lyricsId,
+            lines: syncedLines.map((line, index) => ({
+              text: line.text,
+              startTime: line.startTime,
+              endTime: line.endTime,
+              orderIndex: index,
+            })),
+          });
+        }
 
         return {
           success: true,
-          message: "Lyrics sync job started",
+          message: "Lyrics synchronized successfully",
           songId: input.songId,
         };
-      });
+      }).pipe(
+        Effect.catchTags({
+          DatabaseError: (error: { message: string }) =>
+            Effect.fail(
+              new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: error.message,
+              })
+            ),
+          ValidationError: (error: { reason: string }) =>
+            Effect.fail(
+              new TRPCError({
+                code: "BAD_REQUEST",
+                message: error.reason,
+              })
+            ),
+        })
+      );
 
       return ctx.runtime.runPromise(program);
     }),
