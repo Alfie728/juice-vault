@@ -124,7 +124,9 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
     
     // If it's the same song, just resume
     if (currentSong?.id === song.id && audioRef.current.paused) {
-      audioRef.current.play();
+      void audioRef.current.play().catch(() => {
+        // Playback error will be handled by the error event listener
+      });
       return;
     }
     
@@ -132,7 +134,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
     setCurrentSong(song);
     audioRef.current.src = song.audioUrl;
     audioRef.current.load();
-    audioRef.current.play().catch(() => {
+    void audioRef.current.play().catch(() => {
       // Playback error will be handled by the error event listener
     });
   };
@@ -145,7 +147,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
 
   const resume = () => {
     if (audioRef.current && audioRef.current.paused && currentSong) {
-      audioRef.current.play().catch(() => {
+      void audioRef.current.play().catch(() => {
         // Playback error will be handled by the error event listener
       });
     }

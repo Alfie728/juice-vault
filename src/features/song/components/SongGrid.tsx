@@ -67,7 +67,7 @@ export function SongGrid({ songs }: SongGridProps) {
                       if (currentSong?.id === song.id && isPlaying) {
                         pause();
                       } else {
-                        play(song as any);
+                        play(song);
                       }
                     }}
                   >

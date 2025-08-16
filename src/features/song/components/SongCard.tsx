@@ -17,10 +17,10 @@ interface SongWithUser {
   id: string;
   title: string;
   artist: string;
-  duration?: number;
+  duration?: number | null;
   audioUrl: string;
-  coverArtUrl?: string;
-  releaseDate?: Date;
+  coverArtUrl?: string | null;
+  releaseDate?: Date | null;
   isUnreleased: boolean;
   playCount: number;
   createdAt: Date;
@@ -28,9 +28,9 @@ interface SongWithUser {
   uploadedById: string;
   uploadedBy: {
     id: string;
-    name?: string;
-    email?: string;
-    image?: string;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
   };
 }
 
@@ -65,7 +65,7 @@ export function SongCard({
     }
   };
 
-  const formatDuration = (seconds?: number) => {
+  const formatDuration = (seconds?: number | null) => {
     if (!seconds) return "";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -83,10 +83,10 @@ export function SongCard({
   };
 
   return (
-    <div className="group bg-card relative rounded-lg border p-4 sm:p-5 transition-all hover:shadow-lg hover:border-purple-600/50 w-full">
+    <div className="group relative rounded-lg border border-zinc-800 bg-gradient-to-b from-zinc-900/50 to-zinc-950/50 backdrop-blur-sm p-4 sm:p-5 transition-all hover:shadow-lg hover:border-purple-600/50 hover:shadow-purple-600/20 w-full">
       <div className="flex gap-4 sm:gap-5">
         {/* Album Art */}
-        <div className="bg-muted relative h-20 w-20 sm:h-24 sm:w-24 flex-shrink-0 overflow-hidden rounded-md">
+        <div className="relative h-20 w-20 sm:h-24 sm:w-24 flex-shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-purple-900/20 to-blue-900/20">
           {song.coverArtUrl && !imageError ? (
             <Image
               src={song.coverArtUrl}
@@ -98,7 +98,7 @@ export function SongCard({
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <Music className="text-muted-foreground h-8 w-8 sm:h-10 sm:w-10" />
+              <Music className="h-8 w-8 sm:h-10 sm:w-10 text-zinc-600" />
             </div>
           )}
 
@@ -122,8 +122,8 @@ export function SongCard({
         {/* Song Info */}
         <div className="flex flex-1 flex-col justify-center min-w-0">
           <h3 className="line-clamp-1 text-base sm:text-lg font-semibold text-white">{song.title}</h3>
-          <p className="text-muted-foreground text-sm sm:text-base mb-1">{song.artist}</p>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+          <p className="text-zinc-400 text-sm sm:text-base mb-1">{song.artist}</p>
+          <div className="text-zinc-500 flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm">
             {song.duration && <span>{formatDuration(song.duration)}</span>}
             {song.isUnreleased && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-bold">

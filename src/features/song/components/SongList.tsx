@@ -35,9 +35,9 @@ export function SongList({ songs }: SongListProps) {
               },
             }}
             isPlaying={currentSong?.id === song.id && isPlaying}
-            onPlay={() => play(song as any)}
+            onPlay={() => play(song)}
             onPause={() => pause()}
-            onAddToPlaylist={() => addToQueue(song as any)}
+            onAddToPlaylist={() => addToQueue(song)}
           />
         </motion.div>
       ))}
