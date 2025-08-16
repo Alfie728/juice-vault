@@ -154,7 +154,7 @@ export function AdvancedSongUploadDialog() {
       // Handle success (lyrics generation, etc.)
       await handleUploadSuccess(song);
     } catch (error) {
-      console.error("Upload error:", error);
+      // Error is already handled by toast notifications in useSongUpload hook
     }
   };
 

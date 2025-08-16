@@ -4,6 +4,8 @@ import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Toaster } from "sonner";
 
+import { AudioPlayerProvider } from "~/features/player/hooks/use-audio-player";
+import { MusicPlayer } from "~/features/player/components/MusicPlayer";
 import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
@@ -23,7 +25,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable}`}>
       <body>
-        <TRPCReactProvider>{children}</TRPCReactProvider>
+        <TRPCReactProvider>
+          <AudioPlayerProvider>
+            {children}
+            <MusicPlayer />
+          </AudioPlayerProvider>
+        </TRPCReactProvider>
         <Toaster />
       </body>
     </html>

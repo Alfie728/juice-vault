@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Heart, Music, Play } from "lucide-react";
+import { Clock, Heart, Music, Pause, Play } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
 
+import { useAudioPlayer } from "~/features/player/hooks/use-audio-player";
 import { Button } from "~/features/shared/components/ui/button";
 import { Card } from "~/features/shared/components/ui/card";
 import { type RouterOutputs } from "~/trpc/react";
@@ -13,12 +14,11 @@ type Song = RouterOutputs["song"]["list"][number];
 
 interface SongGridProps {
   songs: Song[];
-  onPlay?: (songId: string) => void;
-  currentlyPlayingId?: string | null;
 }
 
-export function SongGrid({ songs, onPlay, currentlyPlayingId }: SongGridProps) {
+export function SongGrid({ songs }: SongGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const { play, pause, currentSong, isPlaying, addToQueue } = useAudioPlayer();
 
   return (
     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -52,7 +52,7 @@ export function SongGrid({ songs, onPlay, currentlyPlayingId }: SongGridProps) {
               {/* Play button overlay */}
               <div
                 className={`absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${
-                  hoveredId === song.id ? "opacity-100" : "opacity-0"
+                  hoveredId === song.id || (currentSong?.id === song.id && isPlaying) ? "opacity-100" : "opacity-0"
                 }`}
               >
                 <div className="flex h-full items-center justify-center">
@@ -60,9 +60,19 @@ export function SongGrid({ songs, onPlay, currentlyPlayingId }: SongGridProps) {
                     size="icon"
                     variant="ghost"
                     className="h-16 w-16 rounded-full bg-purple-600 transition-all hover:scale-110 hover:bg-purple-700"
-                    onClick={() => onPlay?.(song.id)}
+                    onClick={() => {
+                      if (currentSong?.id === song.id && isPlaying) {
+                        pause();
+                      } else {
+                        play(song as any);
+                      }
+                    }}
                   >
-                    <Play className="ml-1 h-8 w-8 fill-white text-white" />
+                    {currentSong?.id === song.id && isPlaying ? (
+                      <Pause className="h-8 w-8 fill-white text-white" />
+                    ) : (
+                      <Play className="ml-1 h-8 w-8 fill-white text-white" />
+                    )}
                   </Button>
                 </div>
               </div>

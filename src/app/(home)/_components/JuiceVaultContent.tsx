@@ -17,7 +17,6 @@ import { useTRPC } from "~/trpc/react";
 export function JuiceVaultContent() {
   const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
   const trpc = useTRPC();
 
   const { data: songs, isLoading } = useQuery(trpc.song.list.queryOptions());
@@ -31,10 +30,6 @@ export function JuiceVaultContent() {
   const displaySongs = searchQuery.length > 2 ? searchResults.data : songs;
   const isSearching =
     searchQuery.length > 2 ? searchResults.isLoading : isLoading;
-
-  const handlePlay = (songId: string) => {
-    setCurrentlyPlaying(currentlyPlaying === songId ? null : songId);
-  };
 
   return (
     <div className="min-h-screen">
@@ -135,11 +130,7 @@ export function JuiceVaultContent() {
                 <LoadingSpinner />
               </div>
             ) : displaySongs && displaySongs.length > 0 ? (
-              <SongGrid
-                songs={displaySongs}
-                onPlay={handlePlay}
-                currentlyPlayingId={currentlyPlaying}
-              />
+              <SongGrid songs={displaySongs} />
             ) : (
               <div className="flex h-64 flex-col items-center justify-center gap-4 text-zinc-400">
                 <Music2 className="h-16 w-16" />
