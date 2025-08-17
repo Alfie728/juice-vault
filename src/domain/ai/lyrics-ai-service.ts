@@ -1,8 +1,9 @@
 import { openai } from "@ai-sdk/openai";
 import { Schema } from "@effect/schema";
-import { generateObject, experimental_transcribe as transcribe } from "ai";
+import { experimental_transcribe as transcribe } from "ai";
 import { Effect, pipe, Schedule } from "effect";
-import { z } from "zod";
+import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 
 import { AiError } from "~/domain/ai/errors";
 import { ValidationError } from "~/domain/errors";
@@ -36,20 +37,27 @@ export type GenerateLyricsInput = Schema.Schema.Type<
   typeof GenerateLyricsInput
 >;
 
-export const SyncLyricsInput = Schema.Struct({
-  audioUrl: Schema.String, // For sync, we only need a URL reference
-  fullLyrics: Schema.String,
+export const GenerateLyricsResult = Schema.Struct({
+  text: Schema.String,
+  lines: Schema.Array(LyricLine),
+  language: Schema.optional(Schema.String),
   duration: Schema.optional(Schema.Number),
 });
 
-export type SyncLyricsInput = Schema.Schema.Type<typeof SyncLyricsInput>;
+export type GenerateLyricsResult = Schema.Schema.Type<
+  typeof GenerateLyricsResult
+>;
 
 export class LyricsAIService extends Effect.Service<LyricsAIService>()(
   "LyricsAIService",
   {
     effect: Effect.gen(function* () {
       const transcriptionModel = openai.transcription("whisper-1");
-      const generationModel = openai("gpt-4o");
+
+      // Initialize OpenAI client for direct API calls
+      const openaiClient = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
 
       return {
         generateLyrics: (input: GenerateLyricsInput) =>
@@ -139,19 +147,47 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                     Effect.tryPromise({
                       try: async () => {
                         const startTime = Date.now();
-                        const { text } = await transcribe({
-                          model: transcriptionModel,
-                          audio: audioData,
+
+                        // Use OpenAI API directly to get verbose JSON with segments
+                        const file = await toFile(audioData, "audio.mp3", {
+                          type: "audio/mpeg",
                         });
+
+                        const transcription =
+                          await openaiClient.audio.transcriptions.create({
+                            file,
+                            model: "whisper-1",
+                            response_format: "verbose_json",
+                            timestamp_granularities: ["segment"] as ["segment"],
+                          });
+
                         const duration = Date.now() - startTime;
 
                         // Add event for successful transcription
                         Effect.logInfo("Transcription completed", {
                           duration,
-                          textLength: text.length,
+                          textLength: transcription.text.length,
+                          segmentCount: transcription.segments?.length ?? 0,
                         }).pipe(Effect.runSync);
 
-                        return text;
+                        // Convert OpenAI segments to our LyricLine format
+                        const segments = transcription.segments;
+                        const lines: LyricLine[] =
+                          segments && segments.length > 0
+                            ? segments.map((segment) => ({
+                                text: segment.text.trim(),
+                                startTime: segment.start,
+                                endTime: segment.end,
+                              }))
+                            : [];
+
+                        // Return both text and timestamped lines
+                        return {
+                          text: transcription.text,
+                          lines,
+                          language: transcription.language,
+                          duration: transcription.duration,
+                        };
                       },
                       catch: (error) =>
                         new AiError({
@@ -179,120 +215,6 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
               attributes: {
                 "operation.type": "audio_transcription",
                 "ai.model": "whisper-1",
-              },
-            }),
-            Effect.retry(Schedule.exponential("600 millis"))
-          ),
-
-        syncLyricsWithTimestamps: (input: SyncLyricsInput) =>
-          pipe(
-            // Input validation span
-            Effect.withSpan(
-              Schema.decodeUnknown(SyncLyricsInput)(input),
-              "lyrics.sync.validate_input"
-            ),
-            Effect.mapError(
-              (error) =>
-                new ValidationError({
-                  field: "syncLyricsInput",
-                  reason: String(error),
-                })
-            ),
-            Effect.flatMap((validInput) =>
-              pipe(
-                // Lyrics preprocessing span
-                Effect.withSpan(
-                  Effect.sync(() => {
-                    const lines = validInput.fullLyrics
-                      .split("\n")
-                      .filter((line) => line.trim());
-                    const averageTimePerLine = validInput.duration
-                      ? validInput.duration / lines.length
-                      : 3;
-
-                    return {
-                      lines,
-                      averageTimePerLine,
-                      lineCount: lines.length,
-                      totalDuration: validInput.duration ?? lines.length * 3,
-                    };
-                  }),
-                  "lyrics.sync.preprocess",
-                  {
-                    attributes: {
-                      "lyrics.full_text_length": validInput.fullLyrics.length,
-                      "lyrics.has_duration": Boolean(validInput.duration),
-                    },
-                  }
-                ),
-                Effect.flatMap(
-                  ({ lines, averageTimePerLine, lineCount, totalDuration }) =>
-                    // GPT-4 timestamp generation span
-                    Effect.withSpan(
-                      Effect.tryPromise({
-                        try: async () => {
-                          const prompt = `
-                        Given these lyrics, estimate reasonable timestamps for each line.
-                        Each line should have a start time in seconds.
-                        Total song duration: ${totalDuration} seconds
-                        Average time per line: ${averageTimePerLine.toFixed(2)} seconds
-
-                        Lyrics:
-                        ${validInput.fullLyrics}
-
-                        Consider natural pauses, chorus repetitions, and typical song structure.
-                        Return timestamps that feel natural for the flow of the song.
-                      `;
-
-                          const startTime = Date.now();
-                          const { object } = await generateObject({
-                            model: generationModel,
-                            prompt,
-                            schema: z.object({
-                              lines: z.array(
-                                z.object({
-                                  text: z.string(),
-                                  startTime: z.number(),
-                                  endTime: z.number().optional(),
-                                })
-                              ),
-                            }),
-                          });
-                          const duration = Date.now() - startTime;
-
-                          // Log successful generation
-                          Effect.logInfo("Timestamps generated", {
-                            duration,
-                            lineCount: object.lines.length,
-                          }).pipe(Effect.runSync);
-
-                          return object.lines as LyricLine[];
-                        },
-                        catch: (error) =>
-                          new AiError({
-                            method: "syncLyricsWithTimestamps",
-                            module: "lyrics-service",
-                            cause: error,
-                            description: `Failed to generate timestamps: ${String(error)}`,
-                          }),
-                      }),
-                      "lyrics.sync.generate_timestamps",
-                      {
-                        attributes: {
-                          "lyrics.line_count": lineCount,
-                          "lyrics.total_duration": totalDuration,
-                          "lyrics.avg_time_per_line": averageTimePerLine,
-                          "ai.model": "gpt-4o",
-                        },
-                      }
-                    )
-                )
-              )
-            ),
-            Effect.withSpan("syncLyricsWithTimestamps", {
-              attributes: {
-                "operation.type": "timestamp_generation",
-                "ai.model": "gpt-4o",
               },
             }),
             Effect.retry(Schedule.exponential("600 millis"))

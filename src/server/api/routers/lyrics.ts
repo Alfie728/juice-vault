@@ -233,22 +233,44 @@ export const lyricsRouter = createTRPCRouter({
           };
         }
 
-        // Get transcribed text from AI transcription program
-        const transcribedText = yield* transcribeAudioProgram;
+        // Get transcribed text and timestamped lines from AI transcription program
+        const transcriptionResult = yield* transcribeAudioProgram;
 
-        // Save the lyrics to database
+        // Enhanced debug log to check transcription result
+        console.log("=== Router: Transcription Result ===");
+        console.log("Text length:", transcriptionResult.text?.length ?? 0);
+        console.log("Lines count:", transcriptionResult.lines?.length ?? 0);
+        console.log("Has timestamps:", (transcriptionResult.lines?.length ?? 0) > 0);
+        
+        if (transcriptionResult.lines && transcriptionResult.lines.length > 0) {
+          console.log("First 3 lines with timestamps:", transcriptionResult.lines.slice(0, 3));
+        }
+        
+        // Save the lyrics to database with timestamped lines
         const lyrics = yield* Effect.withSpan(
           lyricsService.createLyrics({
             songId: input.songId,
-            fullText: transcribedText,
+            fullText: transcriptionResult.text,
             isGenerated: true,
+            lines: transcriptionResult.lines && transcriptionResult.lines.length > 0
+              ? transcriptionResult.lines.map((line, index) => ({
+                  text: line.text,
+                  startTime: line.startTime,
+                  endTime: line.endTime,
+                  orderIndex: index,
+                }))
+              : undefined,
           }),
           "lyrics.save_to_database",
           {
             attributes: {
               "lyrics.song_id": input.songId,
               "lyrics.is_generated": true,
-              "lyrics.text_length": transcribedText.length,
+              "lyrics.text_length": transcriptionResult.text.length,
+              "lyrics.lines_count": transcriptionResult.lines?.length ?? 0,
+              "lyrics.has_timestamps": (transcriptionResult.lines?.length ?? 0) > 0,
+              "lyrics.language": transcriptionResult.language ?? "unknown",
+              "lyrics.duration": transcriptionResult.duration ?? 0,
             },
           }
         );
@@ -288,126 +310,6 @@ export const lyricsRouter = createTRPCRouter({
       return ctx.runtime.runPromise(generateLyricsProgram);
     }),
 
-  syncLyrics: protectedProcedure
-    .input(
-      z.object({
-        songId: z.string(),
-        lyricsId: z.string().optional(),
-        audioUrl: z.string().url(),
-        fullLyrics: z.string(),
-        duration: z.number().optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      // AI timestamp generation program - generates timing for lyrics
-      const generateTimestampsProgram = Effect.gen(function* () {
-        const lyricsAI = yield* LyricsAIService;
-
-        // Generate timestamps for the lyrics
-        return yield* lyricsAI.syncLyricsWithTimestamps({
-          audioUrl: input.audioUrl,
-          fullLyrics: input.fullLyrics,
-          duration: input.duration,
-        });
-      }).pipe(
-        // Retry while we are still getting AI errors
-        Effect.retry({
-          schedule: Schedule.exponential("1 second"),
-          while: (error) => error._tag === "AiError",
-          times: 3,
-        }),
-        // Handle specific error types gracefully
-        Effect.catchTags({
-          ValidationError: (error) => {
-            return Effect.fail(
-              new TRPCError({
-                code: "BAD_REQUEST",
-                message: `Validation error: ${error.message}`,
-              })
-            );
-          },
-          AiError: (error) => {
-            return Effect.fail(
-              new TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: `AI error: ${error.message}`,
-              })
-            );
-          },
-        }),
-        // Add spans for the entire AI operation
-        Effect.withSpan("lyrics.sync_with_retry", {
-          attributes: {
-            "lyrics.full_text_length": input.fullLyrics.length,
-            "lyrics.duration": input.duration ?? 180,
-            "lyrics.retry_max_attempts": 5,
-            "lyrics.retry_schedule": "exponential_1s",
-          },
-        })
-      );
-
-      // Main sync program - orchestrates timestamp generation and database update
-      const syncLyricsProgram = Effect.gen(function* () {
-        const lyricsService = yield* LyricsService;
-
-        // Get synced lines from AI timestamp generation program
-        const syncedLines = yield* generateTimestampsProgram;
-
-        // Update the lyrics with the synced lines
-        if (input.lyricsId) {
-          yield* Effect.withSpan(
-            lyricsService.updateLyrics({
-              id: input.lyricsId,
-              lines: syncedLines.map((line, index) => ({
-                text: line.text,
-                startTime: line.startTime,
-                endTime: line.endTime,
-                orderIndex: index,
-              })),
-            }),
-            "lyrics.update_with_timestamps",
-            {
-              attributes: {
-                "lyrics.id": input.lyricsId,
-                "lyrics.lines_count": syncedLines.length,
-              },
-            }
-          );
-        }
-
-        return {
-          success: true,
-          message: "Lyrics synchronized successfully",
-          songId: input.songId,
-        };
-      }).pipe(
-        Effect.withSpan("lyrics.syncLyrics", {
-          attributes: {
-            "operation.type": "sync_lyrics",
-            "song.id": input.songId,
-            has_lyrics_id: Boolean(input.lyricsId),
-          },
-        }),
-        Effect.catchTags({
-          DatabaseError: (error: { message: string }) =>
-            Effect.fail(
-              new TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: error.message,
-              })
-            ),
-          ValidationError: (error: { reason: string }) =>
-            Effect.fail(
-              new TRPCError({
-                code: "BAD_REQUEST",
-                message: error.reason,
-              })
-            ),
-        })
-      );
-
-      return ctx.runtime.runPromise(syncLyricsProgram);
-    }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))

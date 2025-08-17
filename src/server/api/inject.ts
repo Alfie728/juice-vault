@@ -13,12 +13,11 @@
  * - Testing: Mock database and services
  * - Development: Debug-enabled services
  */
-import { Layer, ManagedRuntime } from "effect";
 import { NodeSdk } from "@effect/opentelemetry";
+import { NodeHttpClient } from "@effect/platform-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { HttpClient } from "@effect/platform";
-import { NodeHttpClient } from "@effect/platform-node";
+import { Layer, ManagedRuntime } from "effect";
 
 // import { EmbeddingsService } from "~/domain/ai/embeddings-service";
 import { LyricsAIService } from "~/domain/ai/lyrics-ai-service";

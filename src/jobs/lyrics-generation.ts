@@ -29,7 +29,7 @@ export const generateLyricsJob = client.defineJob({
     });
 
     try {
-      const lyricsText = await io.runTask("generate-lyrics-ai", async () => {
+      const transcriptionResult = await io.runTask("transcribe-audio-with-timestamps", async () => {
         const program = Effect.gen(function* () {
           const lyricsAI = yield* LyricsAIService;
           return yield* lyricsAI.generateLyrics({
@@ -50,34 +50,14 @@ export const generateLyricsJob = client.defineJob({
         return result;
       });
 
-      const syncedLines = await io.runTask("sync-lyrics-timestamps", async () => {
-        const program = Effect.gen(function* () {
-          const lyricsAI = yield* LyricsAIService;
-          return yield* lyricsAI.syncLyricsWithTimestamps({
-            audioUrl,
-            fullLyrics: lyricsText,
-            duration,
-          });
-        });
-
-        const result = await Effect.runPromise(
-          program.pipe(
-            Effect.provide(LyricsAIService.Default),
-            Effect.provide(PrismaClientService.Default)
-          )
-        );
-        
-        return result;
-      });
-
       const createdLyrics = await io.runTask("save-lyrics-to-db", async () => {
         const program = Effect.gen(function* () {
           const lyricsService = yield* LyricsService;
           return yield* lyricsService.createLyrics({
             songId,
-            fullText: lyricsText,
+            fullText: transcriptionResult.text,
             isGenerated: true,
-            lines: syncedLines.map((line, index) => ({
+            lines: transcriptionResult.lines.map((line, index) => ({
               text: line.text,
               startTime: line.startTime,
               endTime: line.endTime,
@@ -100,14 +80,14 @@ export const generateLyricsJob = client.defineJob({
         const program = Effect.gen(function* () {
           const embeddingsService = yield* EmbeddingsService;
           const embedding = yield* embeddingsService.generateEmbedding({
-            text: lyricsText,
+            text: transcriptionResult.text,
             type: "lyrics",
           });
           
           yield* embeddingsService.storeLyricsEmbedding(
             songId,
             createdLyrics.id,
-            lyricsText,
+            transcriptionResult.text,
             embedding
           );
           
@@ -131,7 +111,7 @@ export const generateLyricsJob = client.defineJob({
       return {
         success: true,
         lyricsId: createdLyrics.id,
-        linesCount: syncedLines.length,
+        linesCount: transcriptionResult.lines.length,
         hasEmbedding: !!embedding,
       };
     } catch (error) {

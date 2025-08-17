@@ -2,9 +2,9 @@
 
 import type { RouterOutputs } from "~/trpc/react";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Edit3, Loader2, Music2, RefreshCw, X } from "lucide-react";
+import { Check, Edit3, Loader2, Music2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "~/features/shared/components/ui/button";
@@ -36,33 +36,27 @@ export function LyricsViewer({
   isPlaying = false,
 }: LyricsViewerProps) {
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedLyrics, setEditedLyrics] = useState("");
   const [activeLine, setActiveLine] = useState<number>(-1);
 
   // Fetch lyrics
-  const {
-    data: lyrics,
-    isLoading,
-    refetch,
-  } = useQuery(trpc.lyrics.getBySongId.queryOptions({ songId }));
+  const { data: lyrics, isLoading } = useQuery(
+    trpc.lyrics.getBySongId.queryOptions({ songId })
+  );
 
   // Generate lyrics mutation
   const generateLyrics = useMutation(
     trpc.lyrics.generateLyrics.mutationOptions({
       onSuccess: () => {
-        toast.success("Transcribing audio... This may take 1-2 minutes for longer songs.");
-        // Poll for lyrics updates more frequently during transcription
-        const interval = setInterval(() => {
-          refetch();
-        }, 1000); // Poll every second for faster feedback
-
-        // Stop polling after 5 minutes (for longer songs)
-        setTimeout(() => {
-          clearInterval(interval);
-          toast.info("Transcription is taking longer than expected. The lyrics may need to be added manually.");
-        }, 300000);
+        toast.success(
+          "Transcribing audio... This may take 1-2 minutes for longer songs."
+        );
+        void queryClient.invalidateQueries(
+          trpc.lyrics.getBySongId.queryOptions({ songId })
+        );
       },
       onError: (error) => {
         toast.error(`Failed to generate lyrics: ${error.message}`);
@@ -76,28 +70,9 @@ export function LyricsViewer({
       onSuccess: () => {
         toast.success("Lyrics updated successfully");
         setIsEditing(false);
-        refetch();
       },
       onError: (error) => {
         toast.error(`Failed to update lyrics: ${error.message}`);
-      },
-    })
-  );
-
-  // Sync lyrics mutation
-  const syncLyrics = useMutation(
-    trpc.lyrics.syncLyrics.mutationOptions({
-      onSuccess: () => {
-        toast.success("Lyrics sync started! This may take a minute...");
-        // Poll for updates
-        const interval = setInterval(() => {
-          refetch();
-        }, 5000);
-
-        setTimeout(() => clearInterval(interval), 120000);
-      },
-      onError: (error) => {
-        toast.error(`Failed to sync lyrics: ${error.message}`);
       },
     })
   );
@@ -140,18 +115,6 @@ export function LyricsViewer({
       audioUrl,
       songTitle,
       artist,
-      duration,
-    });
-  };
-
-  const handleSyncLyrics = () => {
-    if (!lyrics) return;
-
-    syncLyrics.mutate({
-      songId,
-      lyricsId: lyrics.id,
-      audioUrl,
-      fullLyrics: lyrics.fullText,
       duration,
     });
   };
@@ -217,7 +180,7 @@ export function LyricsViewer({
         <div className="flex gap-2">
           {!isEditing ? (
             <>
-              {lyrics.lines && lyrics.lines.length > 0 ? (
+              {lyrics.lines && lyrics.lines.length > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -226,26 +189,6 @@ export function LyricsViewer({
                 >
                   <Edit3 className="h-4 w-4" />
                   Edit
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSyncLyrics}
-                  disabled={syncLyrics.isPending}
-                  className="gap-2"
-                >
-                  {syncLyrics.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Syncing...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4" />
-                      Sync Timing
-                    </>
-                  )}
                 </Button>
               )}
             </>

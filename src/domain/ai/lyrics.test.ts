@@ -89,24 +89,16 @@ const testGenerateLyrics = Effect.gen(function* () {
     console.log("\n=== Generated Lyrics from Audio ===");
     console.log(lyrics);
 
-    // Test syncLyricsWithTimestamps with the transcribed lyrics
-    if (lyrics) {
-      const syncInput = {
-        audioUrl: "mock-url", // Not actually used in sync
-        fullLyrics: lyrics,
-        duration: testInput.duration,
-      };
-
-      const syncedLyrics =
-        yield* lyricsService.syncLyricsWithTimestamps(syncInput);
-      console.log("\n=== Synced Lyrics with Timestamps ===");
-      syncedLyrics.forEach((line) => {
+    // Test timestamped lyrics from transcription
+    if (lyrics.lines && lyrics.lines.length > 0) {
+      console.log("\n=== Timestamped Lyrics from AI SDK ===");
+      lyrics.lines.forEach((line) => {
         console.log(`[${line.startTime.toFixed(2)}s] ${line.text}`);
       });
 
       // Test improveTimestamps (without audio analysis for now)
       const improvedLyrics =
-        yield* lyricsService.improveTimestamps(syncedLyrics);
+        yield* lyricsService.improveTimestamps(lyrics.lines);
       console.log("\n=== Improved Timestamps ===");
       improvedLyrics.forEach((line) => {
         console.log(
