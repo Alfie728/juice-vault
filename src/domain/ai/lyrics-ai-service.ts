@@ -146,8 +146,6 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                   Effect.withSpan(
                     Effect.tryPromise({
                       try: async () => {
-                        const startTime = Date.now();
-
                         // Use OpenAI API directly to get verbose JSON with segments
                         const file = await toFile(audioData, "audio.mp3", {
                           type: "audio/mpeg",
@@ -158,14 +156,11 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
                             file,
                             model: "whisper-1",
                             response_format: "verbose_json",
-                            timestamp_granularities: ["segment"] as ["segment"],
+                            timestamp_granularities: ["segment"],
                           });
-
-                        const duration = Date.now() - startTime;
 
                         // Add event for successful transcription
                         Effect.logInfo("Transcription completed", {
-                          duration,
                           textLength: transcription.text.length,
                           segmentCount: transcription.segments?.length ?? 0,
                         }).pipe(Effect.runSync);
