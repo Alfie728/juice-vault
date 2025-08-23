@@ -1,7 +1,7 @@
 "use client";
 
 import type { RouterOutputs } from "~/trpc/react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Check, Edit3, Loader2, Music2, X } from "lucide-react";
@@ -11,6 +11,7 @@ import { Button } from "~/features/shared/components/ui/button";
 import { ScrollArea } from "~/features/shared/components/ui/scroll-area";
 import { Textarea } from "~/features/shared/components/ui/textarea";
 import { useTRPC } from "~/trpc/react";
+
 import LRC from "./LRC";
 
 type Lyrics = RouterOutputs["lyrics"]["getBySongId"];
@@ -77,7 +78,6 @@ export function LyricsViewer({
     })
   );
 
-
   // Initialize edit mode with current lyrics
   useEffect(() => {
     if (lyrics?.fullText && isEditing) {
@@ -88,7 +88,7 @@ export function LyricsViewer({
   // Convert lyrics to LRC format
   const lrcContent = useMemo(() => {
     if (!lyrics?.lines || lyrics.lines.length === 0) return "";
-    
+
     return lyrics.lines
       .map((line) => {
         if (line.startTime !== undefined) {
@@ -148,7 +148,7 @@ export function LyricsViewer({
         <Button
           onClick={handleGenerateLyrics}
           disabled={generateLyrics.isPending}
-          className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+          className="gap-2 bg-purple-600 text-white hover:bg-purple-700"
         >
           {generateLyrics.isPending ? (
             <>
@@ -169,10 +169,10 @@ export function LyricsViewer({
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <div>
           <h3 className="text-2xl font-bold text-white">{songTitle}</h3>
-          <p className="text-sm text-zinc-400 mt-1">{artist}</p>
+          <p className="mt-1 text-sm text-zinc-400">{artist}</p>
         </div>
 
         <div className="flex gap-2">
@@ -183,7 +183,7 @@ export function LyricsViewer({
                   variant="ghost"
                   size="sm"
                   onClick={() => setIsEditing(true)}
-                  className="gap-2 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                  className="gap-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 >
                   <Edit3 className="h-4 w-4" />
                   Edit
@@ -196,7 +196,7 @@ export function LyricsViewer({
                 variant="ghost"
                 size="sm"
                 onClick={handleCancelEdit}
-                className="gap-2 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                className="gap-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               >
                 <X className="h-4 w-4" />
                 Cancel
@@ -205,7 +205,7 @@ export function LyricsViewer({
                 size="sm"
                 onClick={handleSaveLyrics}
                 disabled={updateLyrics.isPending}
-                className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                className="gap-2 bg-purple-600 text-white hover:bg-purple-700"
               >
                 {updateLyrics.isPending ? (
                   <>
@@ -265,17 +265,11 @@ export function LyricsViewer({
 
       {/* Status */}
       {lyrics.isGenerated && !lyrics.isVerified && (
-        <div className="flex items-center gap-2 rounded-full bg-purple-500/10 px-3 py-1.5 text-xs text-purple-400 mt-4">
+        <div className="mt-4 flex items-center gap-2 rounded-full bg-purple-500/10 px-3 py-1.5 text-xs text-purple-400">
           <Music2 className="h-3 w-3" />
           AI Generated • Not Verified
         </div>
       )}
     </div>
   );
-}
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }

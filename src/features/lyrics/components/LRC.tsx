@@ -1,8 +1,11 @@
-import { type CSSProperties, useEffect } from 'react';
-import { Lrc, useRecoverAutoScrollImmediately } from 'react-lrc';
-import useTimer from '../hooks/useTimer';
-import Control from './LyricsControl';
-import { cn } from '~/lib/utils';
+import type { CSSProperties } from "react";
+import { useEffect } from "react";
+import { Lrc, useRecoverAutoScrollImmediately } from "react-lrc";
+
+import { cn } from "~/lib/utils";
+
+import useTimer from "../hooks/useTimer";
+import Control from "./LyricsControl";
 
 interface LRCProps {
   lrc: string;
@@ -31,8 +34,16 @@ export default function LRC({
   isExternallyControlled = false,
   onSeek,
 }: LRCProps) {
-  const { currentMillisecond, setCurrentMillisecond, reset, play, pause, paused } = useTimer(1);
-  const { signal, recoverAutoScrollImmediately } = useRecoverAutoScrollImmediately();
+  const {
+    currentMillisecond,
+    setCurrentMillisecond,
+    reset,
+    play,
+    pause,
+    paused,
+  } = useTimer(1);
+  const { signal, recoverAutoScrollImmediately } =
+    useRecoverAutoScrollImmediately();
 
   // Sync with external time when controlled externally
   useEffect(() => {
@@ -42,16 +53,18 @@ export default function LRC({
   }, [externalTime, isExternallyControlled, setCurrentMillisecond]);
 
   const lrcStyle: CSSProperties = {
-    height: '100%',
-    padding: '40px 0',
-    maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
-    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
+    height: "100%",
+    padding: "40px 0",
+    maskImage:
+      "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)",
   };
 
   const handleLineClick = ({ line }: any) => {
     if (line) {
       const newTime = line.startMillisecond || 0;
-      
+
       if (isExternallyControlled && onSeek) {
         // When externally controlled, call the seek function
         onSeek(newTime);
@@ -67,12 +80,13 @@ export default function LRC({
   };
 
   // Use external time if controlled externally, otherwise use internal timer
-  const displayTime = isExternallyControlled && externalTime !== undefined 
-    ? externalTime 
-    : currentMillisecond;
+  const displayTime =
+    isExternallyControlled && externalTime !== undefined
+      ? externalTime
+      : currentMillisecond;
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex h-full flex-col", className)}>
       {showControls && !isExternallyControlled && (
         <Control
           onPlay={play}
@@ -87,26 +101,28 @@ export default function LRC({
           isPlaying={!paused}
         />
       )}
-      
-      <div className="relative flex-1 min-h-0 overflow-hidden">
+
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <div className="absolute inset-0">
           <Lrc
             lrc={lrc}
             lineRenderer={({ active, line: { content } }) => (
               <div
                 className={cn(
-                  "px-4 py-4 text-center transition-all duration-500 cursor-pointer",
-                  "hover:scale-[1.02] transform-gpu",
+                  "cursor-pointer px-4 py-4 text-center text-2xl transition-all duration-500",
+                  "transform-gpu hover:scale-[1.01]",
                   active
-                    ? "text-white text-3xl font-bold opacity-100 scale-105"
-                    : "text-zinc-500 text-2xl font-medium opacity-60 hover:opacity-80"
+                    ? "scale-110 font-bold text-white opacity-100"
+                    : "font-medium text-zinc-500 opacity-60 hover:opacity-80"
                 )}
                 style={{
-                  textShadow: active ? '0 4px 20px rgba(168, 85, 247, 0.4)' : 'none',
-                  lineHeight: '1.6',
+                  textShadow: active
+                    ? "0 4px 20px rgba(168, 85, 247, 0.4)"
+                    : "none",
+                  lineHeight: "1.6",
                 }}
               >
-                {content || '♪ ♪ ♪'}
+                {content || "♪ ♪ ♪"}
               </div>
             )}
             currentMillisecond={displayTime}

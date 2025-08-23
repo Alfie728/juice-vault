@@ -1,9 +1,15 @@
 "use client";
 
-import { Dialog, DialogContent, DialogTitle } from "~/features/shared/components/ui/dialog";
-import { LyricsViewer } from "./LyricsViewer";
 import { ChevronDown } from "lucide-react";
+
 import { Button } from "~/features/shared/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "~/features/shared/components/ui/dialog";
+
+import { LyricsViewer } from "./LyricsViewer";
 
 interface LyricsDialogProps {
   open: boolean;
@@ -32,12 +38,12 @@ export function LyricsDialog({
 }: LyricsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 bg-gradient-to-b from-purple-900/20 via-zinc-950 to-zinc-950 border-0">
+      <DialogContent className="flex h-[90vh] max-w-6xl flex-col border-0 bg-gradient-to-b from-purple-800 via-zinc-950 to-zinc-950 p-0">
         {/* Visually hidden title for accessibility */}
         <DialogTitle className="sr-only">
           Lyrics for {songTitle} by {artist}
         </DialogTitle>
-        
+
         {/* Header */}
         <div className="flex items-center justify-between p-6 pb-4">
           <div className="flex items-center gap-4">
@@ -45,17 +51,19 @@ export function LyricsDialog({
               size="icon"
               variant="ghost"
               onClick={() => onOpenChange(false)}
-              className="h-8 w-8 rounded-full bg-black/20 backdrop-blur hover:bg-black/30 text-white"
+              className="h-8 w-8 rounded-full bg-black/20 text-white backdrop-blur hover:bg-black/30"
             >
               <ChevronDown className="h-5 w-5" />
             </Button>
             <div>
-              <h2 className="text-sm font-medium text-white/60">Playing from</h2>
+              <h2 className="text-sm font-medium text-white/60">
+                Playing from
+              </h2>
               <p className="text-xs text-white/40">Your Library</p>
             </div>
           </div>
         </div>
-        
+
         {/* Lyrics Content */}
         <div className="flex-1 overflow-hidden px-6 pb-6">
           <LyricsViewer
