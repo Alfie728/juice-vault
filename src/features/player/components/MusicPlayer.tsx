@@ -1,26 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion, spring } from "framer-motion";
 import {
+  FileText,
+  Heart,
+  ListMusic,
+  Maximize2,
+  Music,
   Pause,
   Play,
+  Repeat,
+  Shuffle,
   SkipBack,
   SkipForward,
   Volume2,
   VolumeX,
-  Music,
-  ListMusic,
-  FileText,
-  Shuffle,
-  Repeat,
-  Heart,
-  Maximize2,
   X,
 } from "lucide-react";
 import Image from "next/image";
 
+import { LyricsDialog } from "~/features/lyrics/components/LyricsDialog";
 import { Button } from "~/features/shared/components/ui/button";
-import { Slider } from "~/features/shared/components/ui/slider";
 import {
   Sheet,
   SheetContent,
@@ -28,9 +29,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/features/shared/components/ui/sheet";
+import { Slider } from "~/features/shared/components/ui/slider";
 import { cn } from "~/lib/utils";
+
 import { useAudioPlayer } from "../hooks/use-audio-player";
-import { LyricsDialog } from "~/features/lyrics/components/LyricsDialog";
 
 export function MusicPlayer() {
   const {
@@ -101,11 +103,11 @@ export function MusicPlayer() {
 
   return (
     <>
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950 border-t border-zinc-800">
+      <div className="fixed right-0 bottom-0 left-0 z-50 border-t border-zinc-800 bg-zinc-950">
         <div className="h-[90px] px-4">
           <div className="flex h-full items-center justify-between gap-4">
             {/* Left Section - Song Info */}
-            <div className="flex min-w-0 items-center gap-3 flex-[0.3]">
+            <div className="flex min-w-0 flex-[0.3] items-center gap-3">
               <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded shadow-lg">
                 {currentSong.coverArtUrl && !imageError ? (
                   <Image
@@ -123,10 +125,10 @@ export function MusicPlayer() {
                 )}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-white hover:underline cursor-pointer">
+                <p className="cursor-pointer truncate text-sm font-medium text-white hover:underline">
                   {currentSong.title}
                 </p>
-                <p className="truncate text-xs text-zinc-400 hover:text-zinc-300 hover:underline cursor-pointer">
+                <p className="cursor-pointer truncate text-xs text-zinc-400 hover:text-zinc-300 hover:underline">
                   {currentSong.artist}
                 </p>
               </div>
@@ -134,7 +136,7 @@ export function MusicPlayer() {
                 size="icon"
                 variant="ghost"
                 className={cn(
-                  "h-8 w-8 hover:scale-105 transition-transform",
+                  "h-8 w-8 transition-transform hover:scale-105",
                   isLiked && "text-purple-500"
                 )}
                 onClick={() => setIsLiked(!isLiked)}
@@ -144,72 +146,78 @@ export function MusicPlayer() {
             </div>
 
             {/* Center Section - Player Controls */}
-            <div className="flex flex-col items-center gap-2 flex-[0.4] max-w-[722px]">
+            <div className="flex max-w-[722px] flex-[0.4] flex-col items-center gap-2">
               {/* Control Buttons */}
               <div className="flex items-center gap-4">
                 <Button
                   size="icon"
                   variant="ghost"
                   className={cn(
-                    "h-8 w-8 hover:scale-105 transition-all",
-                    isShuffled ? "text-purple-500" : "text-zinc-400 hover:text-white"
+                    "h-8 w-8 transition-all hover:scale-105",
+                    isShuffled
+                      ? "text-purple-500"
+                      : "text-zinc-400 hover:text-white"
                   )}
                   onClick={() => setIsShuffled(!isShuffled)}
                 >
                   <Shuffle className="h-4 w-4" />
                 </Button>
-                
+
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 text-white hover:scale-105 transition-all"
+                  className="h-8 w-8 text-white transition-all hover:scale-105"
                   onClick={playPrevious}
                 >
                   <SkipBack className="h-5 w-5 fill-current" />
                 </Button>
-                
+
                 <Button
                   size="icon"
-                  className="h-10 w-10 rounded-full bg-white text-black hover:bg-white hover:scale-105 transition-all"
+                  className="h-10 w-10 rounded-full bg-white text-black transition-all hover:scale-105 hover:bg-white"
                   onClick={togglePlayPause}
                   disabled={isLoading}
                 >
                   {isPlaying ? (
                     <Pause className="h-5 w-5 fill-current" />
                   ) : (
-                    <Play className="h-5 w-5 fill-current ml-0.5" />
+                    <Play className="ml-0.5 h-5 w-5 fill-current" />
                   )}
                 </Button>
-                
+
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 text-white hover:scale-105 transition-all"
+                  className="h-8 w-8 text-white transition-all hover:scale-105"
                   onClick={playNext}
                   disabled={queue.length === 0}
                 >
                   <SkipForward className="h-5 w-5 fill-current" />
                 </Button>
-                
+
                 <Button
                   size="icon"
                   variant="ghost"
                   className={cn(
-                    "h-8 w-8 hover:scale-105 transition-all relative",
-                    repeatMode !== "off" ? "text-purple-500" : "text-zinc-400 hover:text-white"
+                    "relative h-8 w-8 transition-all hover:scale-105",
+                    repeatMode !== "off"
+                      ? "text-purple-500"
+                      : "text-zinc-400 hover:text-white"
                   )}
                   onClick={toggleRepeat}
                 >
                   <Repeat className="h-4 w-4" />
                   {repeatMode === "one" && (
-                    <span className="absolute -top-0.5 -right-0.5 text-[10px] font-bold">1</span>
+                    <span className="absolute -top-0.5 -right-0.5 text-[10px] font-bold">
+                      1
+                    </span>
                   )}
                 </Button>
               </div>
 
               {/* Progress Bar */}
               <div className="flex w-full items-center gap-2">
-                <span className="text-[11px] text-zinc-400 min-w-[40px] text-right">
+                <span className="min-w-[40px] text-right text-[11px] text-zinc-400">
                   {formatTime(currentTime)}
                 </span>
                 <Slider
@@ -217,23 +225,25 @@ export function MusicPlayer() {
                   max={duration || 100}
                   step={1}
                   onValueChange={handleSeek}
-                  className="flex-1 [&_[role=slider]]:h-1 [&_[role=slider]]:bg-zinc-700 [&_[data-orientation]]:bg-white hover:[&_[data-orientation]]:bg-purple-500 [&_[data-orientation]]:transition-colors [&_span[role=slider]]:h-3 [&_span[role=slider]]:w-3 [&_span[role=slider]]:bg-white [&_span[role=slider]]:border-0 [&_span[role=slider]]:opacity-0 hover:[&_span[role=slider]]:opacity-100 [&_span[role=slider]]:transition-opacity"
+                  className="flex-1 [&_[data-orientation]]:bg-white [&_[data-orientation]]:transition-colors hover:[&_[data-orientation]]:bg-purple-500 [&_[role=slider]]:h-1 [&_[role=slider]]:bg-zinc-700 [&_span[role=slider]]:h-3 [&_span[role=slider]]:w-3 [&_span[role=slider]]:border-0 [&_span[role=slider]]:bg-white [&_span[role=slider]]:opacity-0 [&_span[role=slider]]:transition-opacity hover:[&_span[role=slider]]:opacity-100"
                 />
-                <span className="text-[11px] text-zinc-400 min-w-[40px]">
+                <span className="min-w-[40px] text-[11px] text-zinc-400">
                   {formatTime(duration)}
                 </span>
               </div>
             </div>
 
             {/* Right Section - Extra Controls */}
-            <div className="flex items-center justify-end gap-2 flex-[0.3]">
+            <div className="flex flex-[0.3] items-center justify-end gap-2">
               {/* Lyrics Button */}
               <Button
                 size="icon"
                 variant="ghost"
                 className={cn(
-                  "h-8 w-8 hover:scale-105 transition-all",
-                  showLyrics ? "text-purple-500" : "text-zinc-400 hover:text-white"
+                  "h-8 w-8 transition-all hover:scale-105",
+                  showLyrics
+                    ? "text-purple-500"
+                    : "text-zinc-400 hover:text-white"
                 )}
                 onClick={() => setShowLyrics(true)}
               >
@@ -246,32 +256,34 @@ export function MusicPlayer() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 relative text-zinc-400 hover:text-white hover:scale-105 transition-all"
+                    className="relative h-8 w-8 text-zinc-400 transition-all hover:scale-105 hover:text-white"
                   >
                     <ListMusic className="h-4 w-4" />
                     {queue.length > 0 && (
-                      <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-purple-500 text-[10px] text-white flex items-center justify-center font-medium">
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-500 text-[10px] font-medium text-white">
                         {queue.length}
                       </span>
                     )}
                   </Button>
                 </SheetTrigger>
-                <SheetContent className="bg-zinc-950 border-zinc-800">
+                <SheetContent className="border-zinc-800 bg-zinc-950">
                   <SheetHeader>
-                    <SheetTitle className="text-white">Queue • {queue.length} tracks</SheetTitle>
+                    <SheetTitle className="text-white">
+                      Queue • {queue.length} tracks
+                    </SheetTitle>
                   </SheetHeader>
                   <div className="mt-4 space-y-1">
                     {queue.length === 0 ? (
-                      <p className="text-center text-zinc-500 py-8">
+                      <p className="py-8 text-center text-zinc-500">
                         Queue is empty
                       </p>
                     ) : (
                       queue.map((song, index) => (
                         <div
                           key={song.id}
-                          className="group flex items-center gap-3 rounded-md p-2 hover:bg-zinc-800/50 transition-colors"
+                          className="group flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-zinc-800/50"
                         >
-                          <span className="text-xs text-zinc-500 w-5 text-center">
+                          <span className="w-5 text-center text-xs text-zinc-500">
                             {index + 1}
                           </span>
                           <div className="h-10 w-10 flex-shrink-0 rounded bg-zinc-800">
@@ -289,16 +301,18 @@ export function MusicPlayer() {
                               </div>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate text-white">{song.title}</p>
-                            <p className="text-xs text-zinc-500 truncate">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm text-white">
+                              {song.title}
+                            </p>
+                            <p className="truncate text-xs text-zinc-500">
                               {song.artist}
                             </p>
                           </div>
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
                             onClick={() => removeFromQueue(song.id)}
                           >
                             <X className="h-4 w-4" />
@@ -311,7 +325,7 @@ export function MusicPlayer() {
               </Sheet>
 
               {/* Volume Control */}
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden items-center gap-2 md:flex">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -329,7 +343,7 @@ export function MusicPlayer() {
                   max={1}
                   step={0.01}
                   onValueChange={handleVolumeChange}
-                  className="w-24 [&_[role=slider]]:h-1 [&_[role=slider]]:bg-zinc-700 [&_[data-orientation]]:bg-white hover:[&_[data-orientation]]:bg-purple-500 [&_[data-orientation]]:transition-colors [&_span[role=slider]]:h-3 [&_span[role=slider]]:w-3 [&_span[role=slider]]:bg-white [&_span[role=slider]]:border-0 [&_span[role=slider]]:opacity-0 hover:[&_span[role=slider]]:opacity-100 [&_span[role=slider]]:transition-opacity"
+                  className="w-24 [&_[data-orientation]]:bg-white [&_[data-orientation]]:transition-colors hover:[&_[data-orientation]]:bg-purple-500 [&_[role=slider]]:h-1 [&_[role=slider]]:bg-zinc-700 [&_span[role=slider]]:h-3 [&_span[role=slider]]:w-3 [&_span[role=slider]]:border-0 [&_span[role=slider]]:bg-white [&_span[role=slider]]:opacity-0 [&_span[role=slider]]:transition-opacity hover:[&_span[role=slider]]:opacity-100"
                 />
               </div>
 
@@ -337,7 +351,7 @@ export function MusicPlayer() {
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8 text-zinc-400 hover:text-white hover:scale-105 transition-all"
+                className="h-8 w-8 text-zinc-400 transition-all hover:scale-105 hover:text-white"
                 onClick={() => setShowLyrics(true)}
               >
                 <Maximize2 className="h-4 w-4" />
@@ -348,7 +362,7 @@ export function MusicPlayer() {
 
         {/* Progress bar for mobile */}
         <div className="h-1 bg-zinc-800 sm:hidden">
-          <div 
+          <div
             className="h-full bg-purple-500 transition-all duration-100"
             style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
           />

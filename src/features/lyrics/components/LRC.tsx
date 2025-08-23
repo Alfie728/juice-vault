@@ -112,7 +112,7 @@ export default function LRC({
                   "cursor-pointer px-4 py-4 text-center text-2xl transition-all duration-500",
                   "transform-gpu hover:scale-[1.01]",
                   active
-                    ? "scale-110 font-bold text-white opacity-100"
+                    ? "scale-105 font-bold text-white opacity-100 hover:scale-108"
                     : "font-medium text-zinc-500 opacity-60 hover:opacity-80"
                 )}
                 style={{
