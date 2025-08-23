@@ -133,8 +133,8 @@ export function LyricsViewer({
 
   if (isLoading) {
     return (
-      <div className="flex h-[500px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-purple-500" />
       </div>
     );
   }
@@ -142,13 +142,13 @@ export function LyricsViewer({
   // No lyrics found
   if (!lyrics) {
     return (
-      <div className="flex h-[500px] flex-col items-center justify-center space-y-4">
-        <Music2 className="h-16 w-16 text-zinc-600" />
+      <div className="flex h-full flex-col items-center justify-center space-y-4">
+        <Music2 className="h-20 w-20 text-zinc-600" />
         <p className="text-lg text-zinc-400">No lyrics available</p>
         <Button
           onClick={handleGenerateLyrics}
           disabled={generateLyrics.isPending}
-          className="gap-2"
+          className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
         >
           {generateLyrics.isPending ? (
             <>
@@ -167,12 +167,12 @@ export function LyricsViewer({
   }
 
   return (
-    <div className="flex h-[500px] flex-col space-y-4">
+    <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold">{songTitle}</h3>
-          <p className="text-sm text-zinc-400">{artist}</p>
+          <h3 className="text-2xl font-bold text-white">{songTitle}</h3>
+          <p className="text-sm text-zinc-400 mt-1">{artist}</p>
         </div>
 
         <div className="flex gap-2">
@@ -180,10 +180,10 @@ export function LyricsViewer({
             <>
               {lyrics.lines && lyrics.lines.length > 0 && (
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => setIsEditing(true)}
-                  className="gap-2"
+                  className="gap-2 text-zinc-400 hover:text-white hover:bg-zinc-800"
                 >
                   <Edit3 className="h-4 w-4" />
                   Edit
@@ -193,10 +193,10 @@ export function LyricsViewer({
           ) : (
             <>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={handleCancelEdit}
-                className="gap-2"
+                className="gap-2 text-zinc-400 hover:text-white hover:bg-zinc-800"
               >
                 <X className="h-4 w-4" />
                 Cancel
@@ -205,7 +205,7 @@ export function LyricsViewer({
                 size="sm"
                 onClick={handleSaveLyrics}
                 disabled={updateLyrics.isPending}
-                className="gap-2"
+                className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
               >
                 {updateLyrics.isPending ? (
                   <>
@@ -237,7 +237,7 @@ export function LyricsViewer({
             <Textarea
               value={editedLyrics}
               onChange={(e) => setEditedLyrics(e.target.value)}
-              className="min-h-[400px] resize-none border-zinc-700 bg-zinc-900 text-white"
+              className="min-h-[400px] resize-none border-zinc-800 bg-zinc-900/50 text-white placeholder:text-zinc-600 focus:border-purple-500"
               placeholder="Enter lyrics here..."
             />
           </motion.div>
@@ -265,9 +265,9 @@ export function LyricsViewer({
 
       {/* Status */}
       {lyrics.isGenerated && !lyrics.isVerified && (
-        <div className="flex items-center gap-2 rounded-lg bg-yellow-500/10 p-2 text-xs text-yellow-500">
+        <div className="flex items-center gap-2 rounded-full bg-purple-500/10 px-3 py-1.5 text-xs text-purple-400 mt-4">
           <Music2 className="h-3 w-3" />
-          AI Generated - Not Verified
+          AI Generated • Not Verified
         </div>
       )}
     </div>

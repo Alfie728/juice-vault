@@ -43,7 +43,9 @@ export default function LRC({
 
   const lrcStyle: CSSProperties = {
     height: '100%',
-    padding: '20px 0',
+    padding: '40px 0',
+    maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
+    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
   };
 
   const handleLineClick = ({ line }: any) => {
@@ -93,14 +95,18 @@ export default function LRC({
             lineRenderer={({ active, line: { content } }) => (
               <div
                 className={cn(
-                  "min-h-[30px] px-6 py-3 text-center transition-all duration-300 cursor-pointer",
-                  "hover:bg-zinc-800/50 rounded-lg",
+                  "px-4 py-4 text-center transition-all duration-500 cursor-pointer",
+                  "hover:scale-[1.02] transform-gpu",
                   active
-                    ? "text-white scale-105 bg-purple-500/20 font-medium"
-                    : "text-zinc-400"
+                    ? "text-white text-3xl font-bold opacity-100 scale-105"
+                    : "text-zinc-500 text-2xl font-medium opacity-60 hover:opacity-80"
                 )}
+                style={{
+                  textShadow: active ? '0 4px 20px rgba(168, 85, 247, 0.4)' : 'none',
+                  lineHeight: '1.6',
+                }}
               >
-                {content}
+                {content || '♪ ♪ ♪'}
               </div>
             )}
             currentMillisecond={displayTime}
