@@ -1,6 +1,4 @@
-import { openai } from "@ai-sdk/openai";
 import { Schema } from "@effect/schema";
-import { experimental_transcribe as transcribe } from "ai";
 import { Effect, pipe, Schedule } from "effect";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
@@ -52,8 +50,6 @@ export class LyricsAIService extends Effect.Service<LyricsAIService>()(
   "LyricsAIService",
   {
     effect: Effect.gen(function* () {
-      const transcriptionModel = openai.transcription("whisper-1");
-
       // Initialize OpenAI client for direct API calls
       const openaiClient = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,

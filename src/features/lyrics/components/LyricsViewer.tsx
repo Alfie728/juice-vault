@@ -1,17 +1,17 @@
 "use client";
 
 import type { RouterOutputs } from "~/trpc/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Check, Edit3, Loader2, Music2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "~/features/shared/components/ui/button";
 import { ScrollArea } from "~/features/shared/components/ui/scroll-area";
 import { Textarea } from "~/features/shared/components/ui/textarea";
-import { cn } from "~/lib/utils";
 import { useTRPC } from "~/trpc/react";
+import LRC from "./LRC";
 
 type Lyrics = RouterOutputs["lyrics"]["getBySongId"];
 type LyricsLine = NonNullable<Lyrics>["lines"][number];
@@ -24,6 +24,7 @@ interface LyricsViewerProps {
   duration?: number;
   currentTime?: number;
   isPlaying?: boolean;
+  seek?: (time: number) => void;
 }
 
 export function LyricsViewer({
@@ -34,13 +35,12 @@ export function LyricsViewer({
   duration,
   currentTime = 0,
   isPlaying = false,
+  seek,
 }: LyricsViewerProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedLyrics, setEditedLyrics] = useState("");
-  const [activeLine, setActiveLine] = useState<number>(-1);
 
   // Fetch lyrics
   const { data: lyrics, isLoading } = useQuery(
@@ -77,30 +77,6 @@ export function LyricsViewer({
     })
   );
 
-  // Update active line based on current playback time
-  useEffect(() => {
-    if (!lyrics?.lines || !isPlaying) return;
-
-    const active = lyrics.lines.findIndex((line, index) => {
-      const nextLine = lyrics.lines[index + 1];
-      const isInRange =
-        currentTime >= line.startTime &&
-        (nextLine ? currentTime < nextLine.startTime : true);
-      return isInRange;
-    });
-
-    if (active !== activeLine) {
-      setActiveLine(active);
-
-      // Auto-scroll to active line
-      if (scrollRef.current && active >= 0) {
-        const lineElement = scrollRef.current.querySelector(
-          `[data-line-index="${active}"]`
-        );
-        lineElement?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-  }, [currentTime, lyrics?.lines, isPlaying, activeLine]);
 
   // Initialize edit mode with current lyrics
   useEffect(() => {
@@ -108,6 +84,28 @@ export function LyricsViewer({
       setEditedLyrics(lyrics.fullText);
     }
   }, [lyrics?.fullText, isEditing]);
+
+  // Convert lyrics to LRC format
+  const lrcContent = useMemo(() => {
+    if (!lyrics?.lines || lyrics.lines.length === 0) return "";
+    
+    return lyrics.lines
+      .map((line) => {
+        if (line.startTime !== undefined) {
+          const minutes = Math.floor(line.startTime / 60);
+          const seconds = (line.startTime % 60).toFixed(2);
+          const timeTag = `[${minutes.toString().padStart(2, "0")}:${seconds.padStart(5, "0")}]`;
+          return `${timeTag}${line.text}`;
+        }
+        return line.text;
+      })
+      .join("\n");
+  }, [lyrics?.lines]);
+
+  // Check if lyrics have timing information
+  const hasTimingInfo = useMemo(() => {
+    return lyrics?.lines?.some((line) => line.startTime !== undefined) ?? false;
+  }, [lyrics?.lines]);
 
   const handleGenerateLyrics = () => {
     generateLyrics.mutate({
@@ -227,65 +225,43 @@ export function LyricsViewer({
       </div>
 
       {/* Lyrics Content */}
-      <ScrollArea className="flex-1" ref={scrollRef}>
-        <AnimatePresence mode="wait">
-          {isEditing ? (
-            <motion.div
-              key="editor"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="p-4"
-            >
-              <Textarea
-                value={editedLyrics}
-                onChange={(e) => setEditedLyrics(e.target.value)}
-                className="min-h-[400px] resize-none border-zinc-700 bg-zinc-900 text-white"
-                placeholder="Enter lyrics here..."
-              />
-            </motion.div>
+      {isEditing ? (
+        <ScrollArea className="flex-1">
+          <motion.div
+            key="editor"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="p-4"
+          >
+            <Textarea
+              value={editedLyrics}
+              onChange={(e) => setEditedLyrics(e.target.value)}
+              className="min-h-[400px] resize-none border-zinc-700 bg-zinc-900 text-white"
+              placeholder="Enter lyrics here..."
+            />
+          </motion.div>
+        </ScrollArea>
+      ) : (
+        <div className="flex-1">
+          {hasTimingInfo ? (
+            <LRC
+              lrc={lrcContent}
+              showControls={false}
+              externalTime={currentTime * 1000}
+              isExternallyControlled={true}
+              onSeek={seek ? (ms) => seek(ms / 1000) : undefined}
+              className="h-full"
+            />
           ) : (
-            <motion.div
-              key="viewer"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-2 p-4"
-            >
-              {lyrics.lines && lyrics.lines.length > 0 ? (
-                // Synced lyrics with timing
-                lyrics.lines.map((line, index) => (
-                  <motion.div
-                    key={`${line.orderIndex}-${index}`}
-                    data-line-index={index}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.02 }}
-                    className={cn(
-                      "rounded-lg px-3 py-2 transition-all duration-300",
-                      activeLine === index && isPlaying
-                        ? "scale-105 bg-purple-500/20 text-white"
-                        : "text-zinc-400 hover:text-zinc-300"
-                    )}
-                  >
-                    <p className="text-lg leading-relaxed">{line.text}</p>
-                    {line.startTime !== undefined && (
-                      <span className="text-xs text-zinc-600">
-                        {formatTime(line.startTime)}
-                      </span>
-                    )}
-                  </motion.div>
-                ))
-              ) : (
-                // Plain lyrics without timing
-                <div className="whitespace-pre-wrap text-zinc-300">
-                  {lyrics.fullText}
-                </div>
-              )}
-            </motion.div>
+            <ScrollArea className="flex-1">
+              <div className="p-4 whitespace-pre-wrap text-zinc-300">
+                {lyrics.fullText || "No lyrics available"}
+              </div>
+            </ScrollArea>
           )}
-        </AnimatePresence>
-      </ScrollArea>
+        </div>
+      )}
 
       {/* Status */}
       {lyrics.isGenerated && !lyrics.isVerified && (

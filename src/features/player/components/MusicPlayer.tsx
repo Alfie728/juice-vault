@@ -11,6 +11,7 @@ import {
   Music,
   X,
   ListMusic,
+  FileText,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -25,6 +26,7 @@ import {
 } from "~/features/shared/components/ui/sheet";
 import { cn } from "~/lib/utils";
 import { useAudioPlayer } from "../hooks/use-audio-player";
+import { LyricsDialog } from "~/features/lyrics/components/LyricsDialog";
 
 export function MusicPlayer() {
   const {
@@ -48,6 +50,7 @@ export function MusicPlayer() {
   const [showPlayer, setShowPlayer] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [lastSongId, setLastSongId] = useState<string | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
 
   // Show player when a new song is loaded
   useEffect(() => {
@@ -222,6 +225,18 @@ export function MusicPlayer() {
               />
             </div>
 
+            {/* Lyrics Button */}
+            {currentSong && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => setShowLyrics(true)}
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
+            )}
+
             {/* Queue */}
             <Sheet>
               <SheetTrigger asChild>
@@ -291,6 +306,22 @@ export function MusicPlayer() {
           </div>
         </div>
       </div>
+
+      {/* Lyrics Dialog */}
+      {currentSong && (
+        <LyricsDialog
+          open={showLyrics}
+          onOpenChange={setShowLyrics}
+          songId={currentSong.id}
+          songTitle={currentSong.title}
+          artist={currentSong.artist}
+          audioUrl={currentSong.audioUrl}
+          duration={duration}
+          currentTime={currentTime}
+          isPlaying={isPlaying}
+          seek={seek}
+        />
+      )}
     </div>
   );
 }

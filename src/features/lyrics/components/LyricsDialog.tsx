@@ -13,6 +13,7 @@ interface LyricsDialogProps {
   duration?: number;
   currentTime?: number;
   isPlaying?: boolean;
+  seek?: (time: number) => void;
 }
 
 export function LyricsDialog({
@@ -25,6 +26,7 @@ export function LyricsDialog({
   duration,
   currentTime,
   isPlaying,
+  seek,
 }: LyricsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -41,6 +43,7 @@ export function LyricsDialog({
             duration={duration}
             currentTime={currentTime}
             isPlaying={isPlaying}
+            seek={seek}
           />
         </div>
       </DialogContent>
